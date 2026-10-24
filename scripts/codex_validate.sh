@@ -7,7 +7,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 scope="$1"; focus="$2"
 out="docs/validacion/${scope}.md"
-prompt=$(cat <<PROMPT
+read -r -d "" prompt <<PROMPT || true
 Eres un auditor técnico independiente (nivel Senior+) revisando un proyecto de prueba técnica de AI Engineer.
 Fuente de verdad: docs/validacion/prueba_tecnica.md (texto de la prueba). Contratos del sistema: docs/CONTRACTS.md.
 
@@ -21,6 +21,5 @@ Instrucciones:
 - No modifiques archivos.
 - Responde en español, en Markdown, con: 1) Veredicto (APROBADO / CAMBIOS REQUERIDOS), 2) Tabla de requisitos con estado y evidencia, 3) Alucinaciones o afirmaciones sin respaldo, 4) Errores técnicos, 5) Cambios priorizados (máx. 10, del más al menos importante). Sé concreto y breve.
 PROMPT
-)
 codex exec --sandbox read-only -C "$PWD" --skip-git-repo-check -o "$out" "$prompt" > "docs/validacion/.${scope}.log" 2>&1
 echo "Informe: $out"
