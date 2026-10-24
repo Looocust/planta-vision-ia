@@ -1,7 +1,7 @@
 {
   "version": "vision-1.0.2",
   "stage": "production",
-  "created_at": "2026-10-24T19:12:01.515396+00:00",
+  "created_at": "2026-10-24T19:13:43.698649+00:00",
   "data_version_hash": "e9e73124fbf0e964a5248ac55d915dfb58603be5534f82aeda1cababc126bbeb",
   "dataset": "COIL-100 (7.200 vistas, 100 objetos, paso 5°)",
   "seed": 42,
@@ -890,8 +890,8 @@
     }
   },
   "git": {
-    "commit": "648059d16dfd046a8c290992378e4d04a97ad0d1",
-    "dirty": true,
+    "commit": "dd59111bd35648e0cae870a4dd4095f14d0ecf6c",
+    "dirty": false,
     "dirty_scope": [
       "src/vision",
       "scripts/train_vision.py",
@@ -900,21 +900,8 @@
       "configs/vision.yaml",
       "services/vision_api"
     ],
-    "dirty_vision_paths": [
-      "configs/vision.yaml",
-      "scripts/build_vision_notebook.py",
-      "scripts/build_vision_report.py",
-      "scripts/train_vision.py",
-      "services/vision_api/app.py",
-      "src/vision/analysis.py",
-      "src/vision/experiments.py",
-      "src/vision/inference.py",
-      "src/vision/models.py",
-      "src/vision/recipe.py",
-      "src/vision/reject.py",
-      "src/vision/tracking.py"
-    ],
-    "n_unrelated_dirty_paths": 11,
+    "dirty_vision_paths": [],
+    "n_unrelated_dirty_paths": 0,
     "note": "dirty se evalúa solo sobre el código de visión; los demás cambios sin commit (agente) no afectan al artefacto"
   },
   "library_versions": {
@@ -929,5 +916,5 @@
   },
   "code_snapshot_sha256": "9ebd010545e361e70d92675ecd91ba817b5f59e832aa386e100dde03352b1e7d",
   "model_sha256": "769c608ccfd2ce94b2b0f14d3ed26e31e2f474e9022c220cff3deb7db7714d43",
-  "artifact_size_mb": 17.51
+  "artifact_size_mb": 17.6
 }

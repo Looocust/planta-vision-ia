@@ -51,7 +51,7 @@ COPY --from=builder --chown=app:app /app /app
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    MODEL_DIR=models/vision-1.0.1 \
+    MODEL_DIR=models/vision-1.0.2 \
     DATA_DIR=data/raw/coil-100 \
     AGENT_DB_PATH=data/runtime/agent.db
 

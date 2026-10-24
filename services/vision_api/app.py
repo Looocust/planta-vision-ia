@@ -32,7 +32,7 @@ ALLOWED_TYPES = {"image/png", "image/jpeg", "image/jpg"}
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", protected_namespaces=())
-    model_dir: str = str(ROOT / "models" / "vision-1.0.1")
+    model_dir: str = str(ROOT / "models" / "vision-1.0.2")
     models_root: str = str(ROOT / "models")
     admin_token: str = ""
     allow_fault_injection: bool = False

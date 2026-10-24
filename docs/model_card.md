@@ -12,7 +12,7 @@ Identificar el objeto (SKU) de una imagen de estación, estimar su ángulo de ro
 - Score de incertidumbre angular: separación angular equivalente a la distancia al vecino más cercano según la curva distancia-vs-ángulo del objeto. Es un **score heurístico en grados, no una cota del error**; su umbral se elige para que el riesgo observado en validación P(clase incorrecta o |error| > 10° | ACT) sea ≤ 2 %.
 - Umbrales: confianza ≥ 0.95, score ≤ 20.0°, distancia de desconocido ≤ 19.84, razón de novedad ≤ 1.37. Validación de producción (90 conocidos paso 10° + 10 pseudo-desconocidos, vistas limpias + perturbadas): 5737 ACT, error 1.45% (IC95 [1.17, 1.79]%); pseudo-desconocidos que llegan a ACT 2.92% (criterio ≤ 5 %). Esta validación comparte imágenes con tests de los protocolos, así que no es una estimación independiente.
 - Clases con ambigüedad rotacional (→ REVIEW): obj35, obj47, obj67, obj84, obj94, obj95, obj98.
-- Artefacto: 17.51 MB, SHA-256 `769c608ccfd2ce94…`, snapshot de código `9ebd010545e361e7…` (incluido como code_snapshot.tar.gz), commit `648059d16d` (árbol sucio: True); latencia p50 ≈ 13.6 ms/imagen en CPU.
+- Artefacto: 17.6 MB, SHA-256 `769c608ccfd2ce94…`, snapshot de código `9ebd010545e361e7…` (incluido como code_snapshot.tar.gz), commit `dd59111bd3` (árbol sucio: False); latencia p50 ≈ 13.6 ms/imagen en CPU.
 - Trazabilidad: `uv run mlflow ui --backend-store-uri sqlite:///mlflow.db` (experimento `vision-coil100-v2`, artefactos en `<repo>/mlruns`; el experimento histórico `vision-coil100` se conserva).
 
 ## Datos
