@@ -71,12 +71,19 @@ Cabecera `X-Fault: 500 | timeout` en `/v1/predict` para demostrar los escenarios
 
 ## Agente (HTTP, puerto 8002)
 
-- `POST /v1/chat` `{"session_id", "plant_id", "line_id", "user_id", "role", "message", "image_ids": []}` → `{"reply", "tool_calls": [...], "pending_approval": {...} | null, "usage": {"input_tokens", "output_tokens", "cost_usd"}}`.
-- `POST /v1/uploads` multipart `file` → `{"image_id"}` (las imágenes se guardan en `data/runtime/uploads/<plant>/<line>/`).
-- `POST /v1/approvals/{approval_id}` `{"approver_id", "role", "decision": "approve" | "reject", "comment"}` → reanuda el flujo pausado.
+Todas las rutas (salvo `GET /`, `GET /health` y el login de demo) exigen `Authorization: Bearer <token>`. Usuario, rol y plantas autorizadas salen **del token verificado**, nunca del cuerpo. Si el cuerpo declara `user_id` o `role` y no coinciden con el token, la respuesta es 403; sin token o con firma inválida, 401.
+
+- `POST /v1/auth/demo-login` `{"user_id"}` → `{"token", "user_id", "role", "plants", "expires_at"}`. Solo existe con `DEMO_LOGIN=true`; los tokens se firman con HMAC-SHA256 usando `AUTH_SECRET`. En producción se sustituye por OIDC de Entra ID.
+- `POST /v1/chat` `{"session_id", "plant_id", "line_id", "message", "image_ids": []}` → `{"reply", "tool_calls": [...], "pending_approval": {...} | null, "stop_reason", "usage": {"input_tokens", "output_tokens", "llm_calls", "cost_usd"}}`.
+- `POST /v1/uploads` multipart `file`, `plant_id`, `line_id` → `{"image_id"}`. Las imágenes se guardan en `data/runtime/uploads/<plant>/<line>/` y tienen fecha de expiración.
+- `POST /v1/approvals/{approval_id}` `{"decision": "approve" | "reject", "comment"}`. El aprobador es la identidad del token: debe ser distinto del solicitante y tener rol suficiente. Al aprobar, se reanuda el flujo pausado.
+- `GET /v1/review-labels` → etiquetas propuestas pendientes de confirmación humana.
+- `POST /v1/review-labels/{case_id}` `{"label", "angle_deg", "decision"}`: la persona confirma lo que vio. Solo entonces se escribe en el dataset de reentrenamiento.
+- `POST /v1/admin/purge` → purga imágenes y datos expirados.
+- `GET /health` → `{"status", "llm_provider", "llm_model"}`.
 - `GET /` → UI de chat mínima.
 
-Roles: `operator`, `supervisor`, `quality`, `maintenance`, `ml_engineer`, `plant_manager`.
+Roles: `operator`, `supervisor`, `quality`, `maintenance`, `ml_engineer`, `plant_manager` (`configs/roles.yaml`).
 
 ## Proveedor LLM
 
