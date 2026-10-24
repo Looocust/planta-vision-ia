@@ -1,0 +1,59 @@
+# Levanta visión (8001) y agente (8002) con una sola imagen.
+#   cp .env.example .env   # y completar GOOGLE_API_KEY
+#   make up-docker
+# Requisitos previos en el host: dataset en data/raw y modelo en models/
+# (make data && make train), que se montan como volúmenes.
+# NOTA: no probado en esta máquina (Docker no instalado).
+
+x-common: &common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: planta-vision-ia:local
+  env_file: .env
+  restart: unless-stopped
+  volumes:
+    - ./models:/app/models
+    - ./data/raw:/app/data/raw:ro
+    - runtime:/app/data/runtime
+
+services:
+  vision:
+    <<: *common
+    container_name: planta-vision
+    command: ["uvicorn", "services.vision_api.app:app", "--host", "0.0.0.0", "--port", "8001"]
+    ports:
+      - "8001:8001"
+    environment:
+      ALLOW_FAULT_INJECTION: ${ALLOW_FAULT_INJECTION:-true}
+      MODEL_DIR: ${MODEL_DIR:-models/vision-1.0.0}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+
+  agent:
+    <<: *common
+    container_name: planta-agent
+    command: ["uvicorn", "services.agent.app:app", "--host", "0.0.0.0", "--port", "8002"]
+    ports:
+      - "8002:8002"
+    environment:
+      # Dentro de la red de compose el servicio de visión se llama "vision"
+      VISION_API_URL: http://vision:8001
+      AGENT_DB_PATH: data/runtime/agent.db
+      VISION_ADMIN_TOKEN: ${VISION_ADMIN_TOKEN:-${ADMIN_TOKEN:-change-me}}
+    depends_on:
+      vision:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8002/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  runtime:
