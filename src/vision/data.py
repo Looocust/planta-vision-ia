@@ -124,7 +124,8 @@ def protocol_split(labels: np.ndarray, angles: np.ndarray, protocol: str, seed: 
     B: test = arco contiguo de 60° (12 vistas) por objeto con inicio aleatorio (semilla 42); train = 60 vistas.
     C: train 1 vista cada 30° (12/obj), test las otras 60.
     D: 90 objetos conocidos (train = ángulos múltiplos de 10, para poder medir el lado "conocido"),
-       test = vistas impares de los 90 conocidos + TODAS las vistas de los 10 desconocidos.
+       test = vistas impares de los 90 conocidos + TODAS las vistas de los 10 desconocidos (variante "D").
+    D_strict: train = TODAS las vistas de los 90 conocidos; test = solo las 720 vistas de los 10 desconocidos.
     """
     labels = np.asarray(labels)
     angles = np.asarray(angles)
@@ -145,6 +146,12 @@ def protocol_split(labels: np.ndarray, angles: np.ndarray, protocol: str, seed: 
         te = is_unk | ((~is_unk) & (angles % 10 != 0))
         out.update(train=np.where(tr)[0], test=np.where(te)[0], unknown_objects=unk,
                    test_is_unknown=is_unk[te])
+        return out
+    elif protocol == "D_strict":
+        unk = unknown_objects(seed)
+        is_unk = np.isin(labels, unk)
+        out.update(train=np.where(~is_unk)[0], test=np.where(is_unk)[0], unknown_objects=unk,
+                   test_is_unknown=np.ones(int(is_unk.sum()), bool))
         return out
     else:
         raise ValueError(protocol)
@@ -187,6 +194,17 @@ def validation_split(labels: np.ndarray, angles: np.ndarray, protocol: str, seed
         is_ps = np.isin(L, pseudo)
         fit = (~is_ps) & (Ang % 20 == 0)
         val = is_ps | ((~is_ps) & (Ang % 20 != 0))
+        out.update(fit=tr[fit], val=tr[val], pseudo_unknown=pseudo, val_is_unknown=is_ps[val])
+        return out
+    elif protocol == "D_strict":
+        # dentro de los 90 conocidos (todas sus vistas): 10 pseudo-desconocidos (semilla 43);
+        # fit = paso 10° de los otros 80; val = vistas impares de los 80 + todas las de los pseudo-desconocidos
+        known = np.unique(L)
+        rng = np.random.default_rng(seed + 1)
+        pseudo = sorted(int(x) for x in rng.choice(known, size=10, replace=False))
+        is_ps = np.isin(L, pseudo)
+        fit = (~is_ps) & (Ang % 10 == 0)
+        val = is_ps | ((~is_ps) & (Ang % 10 != 0))
         out.update(fit=tr[fit], val=tr[val], pseudo_unknown=pseudo, val_is_unknown=is_ps[val])
         return out
     else:

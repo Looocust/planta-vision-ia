@@ -215,13 +215,11 @@ def put_thresholds(body: ThresholdsIn, request: Request, x_admin_token: str | No
     _require_admin(x_admin_token)
     p = holder.get()
     vals = body.model_dump()
-    if vals["min_class_confidence"] is not None and not 0 <= vals["min_class_confidence"] <= 1:
-        raise HTTPException(400, detail="min_class_confidence ∈ [0,1]")
-    for k in ("max_angle_uncertainty_deg", "unknown_distance"):
-        if vals[k] is not None and vals[k] < 0:
-            raise HTTPException(400, detail=f"{k} ≥ 0")
     with holder._lock:
-        new = p.set_thresholds(**vals)
+        try:
+            new = p.set_thresholds(**vals)  # valida todo antes de mutar (atómico)
+        except (ValueError, TypeError) as e:
+            raise HTTPException(400, detail=str(e)) from e
     log("thresholds_updated", request_id=request.state.request_id, thresholds=new)
     return new
 

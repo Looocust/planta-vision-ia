@@ -96,7 +96,7 @@ class VisionPredictor:
             resp.update(
                 object={"label": label if known else None, "confidence": round(conf, 4), "known": bool(known),
                         "novelty_distance": round(d_nn, 3)},
-                angle={"degrees": round(float(out["angle"][0]), 1) if known else None,
+                angle={"degrees": (round(float(out["angle"][0]), 1) % 360.0) if known else None,
                        "uncertainty_deg": round(unc, 2) if known else None, "ambiguous": amb if known else False},
                 decision=decision, reasons=reasons,
                 robot_command=({"action": "PICK", "object": label, "rotate_deg": _rotate_cmd(out["angle"][0])}
@@ -107,11 +107,13 @@ class VisionPredictor:
         return resp
 
     def set_thresholds(self, **kw) -> dict:
+        """Actualización atómica: se construye y valida el objeto nuevo ANTES de reemplazar el vigente."""
         d = self.thresholds.to_dict()
-        d.update({k: float(v) for k, v in kw.items() if v is not None})
-        self.thresholds = DecisionThresholds(**d)
-        self.metadata["thresholds"] = d
-        return d
+        d.update({k: v for k, v in kw.items() if v is not None})
+        new = DecisionThresholds(**d)  # lanza ValueError si algún valor es NaN/inf/fuera de rango
+        self.thresholds = new
+        self.metadata["thresholds"] = new.to_dict()
+        return new.to_dict()
 
     # ---------------------------------------------------------------- alta de SKU nuevo
     def stage_sku(self, sku: str, images: list[np.ndarray], angles: list[float],

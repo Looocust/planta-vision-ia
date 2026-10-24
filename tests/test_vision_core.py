@@ -10,7 +10,7 @@ import pytest
 from src.vision.angle import circular_error, circular_mean, circular_std, estimate_angle
 from src.vision.data import ANGLES, blind_arc_starts, protocol_split, unknown_objects, validation_split
 from src.vision.quality import assess_quality
-from src.vision.reject import DecisionThresholds, decide
+from src.vision.reject import DecisionThresholds, decide, decide_batch, select_thresholds, wilson_interval
 
 LABELS = np.repeat(np.arange(1, 101), 72)
 ANG = np.tile(ANGLES, 100)
@@ -102,3 +102,48 @@ def test_decision_rule_order():
     assert decide(True, 5, 0.9, 15, False, th) == ("REVIEW", ["high_angle_uncertainty"])
     assert decide(True, 5, 0.9, 5, True, th) == ("REVIEW", ["rotational_ambiguity"])
     assert decide(True, 5, 0.9, 5, False, th) == ("ACT", [])
+
+
+def test_protocol_d_strict():
+    sp = protocol_split(LABELS, ANG, "D_strict")
+    unk = unknown_objects()
+    assert len(sp["train"]) == 90 * 72 and len(sp["test"]) == 720
+    assert np.isin(LABELS[sp["test"]], unk).all() and not np.isin(LABELS[sp["train"]], unk).any()
+    vs = validation_split(LABELS, ANG, "D_strict")
+    assert np.isin(np.r_[vs["fit"], vs["val"]], sp["train"]).all()
+
+
+def test_thresholds_validation_rejects_nan_and_ranges():
+    for kw in ({"max_angle_uncertainty_deg": float("nan")}, {"min_class_confidence": float("inf")},
+               {"min_class_confidence": 1.2}, {"unknown_distance": 0.0}, {"max_angle_uncertainty_deg": 200}):
+        with pytest.raises(ValueError):
+            DecisionThresholds(**kw)
+    th = DecisionThresholds(0.5, 10, 20)
+    # entradas NaN nunca producen ACT
+    assert decide(True, float("nan"), 0.9, 1, False, th)[0] == "REJECT"
+    assert decide(True, 1, 0.9, float("nan"), False, th)[0] == "REVIEW"
+    assert decide_batch([1.0], [float("nan")], [1.0], [False], th)[0] == "REVIEW"
+
+
+def test_select_thresholds_needs_enough_act():
+    n = 30  # menos de min_act casos → automatización desactivada aunque todo sea correcto
+    th, info = select_thresholds(np.ones(n, bool), np.zeros(n), np.ones(n), np.ones(n), np.zeros(n, bool),
+                                 np.ones(n), min_act=50)
+    assert not info["automation_enabled"] and th.max_angle_uncertainty_deg == -1.0
+    n = 400
+    th, info = select_thresholds(np.ones(n, bool), np.zeros(n), np.ones(n), np.ones(n), np.zeros(n, bool),
+                                 np.ones(n), min_act=50)
+    assert info["automation_enabled"] and info["val_n_act"] == n
+
+
+def test_wilson_interval():
+    lo, hi = wilson_interval(0, 100)
+    assert lo == 0 and 0.03 < hi < 0.04
+    assert wilson_interval(0, 0) == (None, None)
+
+
+def test_angle_never_serialized_as_360():
+    from src.vision.inference import _rotate_cmd
+
+    assert (round(359.963, 1) % 360.0) == 0.0
+    assert -180 < _rotate_cmd(359.96) <= 180

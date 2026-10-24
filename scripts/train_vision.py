@@ -3,11 +3,10 @@
 Uso:  uv run python scripts/train_vision.py [--version vision-1.0.0] [--out models/]
 
 1. Descarga/verifica el dataset si falta (SHA-256) y calcula el hash de versión de datos.
-2. Lee el clasificador elegido en validación (docs/report/results.json → `production_selection`;
-   si no existe, configs/vision.yaml).
-3. Fija umbrales de decisión con una partición de validación SOLO de entrenamiento
+2. Aplica la RECETA CONGELADA (src/vision/recipe.py): k angular y umbrales elegidos en una validación
    (90 objetos con paso 10° + 10 pseudo-desconocidos, semilla 43).
-4. Re-entrena con las 7.200 vistas y exporta models/<version>/ (model.joblib + metadata.json).
+3. Re-entrena con las 7.200 vistas y exporta models/<version>/ (model.joblib + metadata.json con SHA-256 del
+   modelo, commit git, versiones de librerías) y lo registra en MLflow (incluido model.joblib).
 """
 from __future__ import annotations
 
@@ -24,14 +23,40 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.vision.angle import circular_error  # noqa: E402
-from src.vision.data import DEFAULT_DATA_DIR, SEED, data_version_hash, ensure_dataset, production_validation_split  # noqa: E402
+from src.vision.data import (DEFAULT_DATA_DIR, SEED, data_version_hash, ensure_dataset,  # noqa: E402
+                             production_validation_split, sha256_file)
 from src.vision.experiments import load_all  # noqa: E402
 from src.vision.features import FeatureConfig  # noqa: E402
 from src.vision.inference import VisionPredictor  # noqa: E402
 from src.vision.models import VisionModel  # noqa: E402
 from src.vision.quality import calibrate_quality  # noqa: E402
-from src.vision.reject import select_thresholds, unreliable_angle_classes  # noqa: E402
+from src.vision.recipe import RECIPE, calibrate_recipe  # noqa: E402
+
+
+def _git_info() -> dict:
+    import subprocess
+
+    def run(*a):
+        try:
+            return subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True, timeout=10).stdout.strip()
+        except Exception:  # noqa: BLE001
+            return ""
+
+    return {"commit": run("rev-parse", "HEAD") or "unknown", "dirty": bool(run("status", "--porcelain")),
+            "note": "dirty=True: el árbol tenía cambios sin commit al entrenar"}
+
+
+def _lib_versions() -> dict:
+    import importlib.metadata as md
+    import platform
+
+    out = {"python": platform.python_version()}
+    for p in ("numpy", "scikit-learn", "scikit-image", "opencv-python-headless", "joblib", "scipy", "mlflow"):
+        try:
+            out[p] = md.version(p)
+        except md.PackageNotFoundError:
+            pass
+    return out
 
 
 def main(argv=None) -> Path:
@@ -50,42 +75,30 @@ def main(argv=None) -> Path:
     data = load_all(fcfg)
     ds, names, X = data["ds"], data["names"], data["classic"]
 
-    clf_name, clf_params, source = cfg["classifier"]["name"], cfg["classifier"]["params"], "configs/vision.yaml"
+    recipe = RECIPE
     results_path = ROOT / "docs" / "report" / "results.json"
-    metrics_summary = {}
+    recipe_metrics = {}
     if results_path.exists():
-        res = json.loads(results_path.read_text())
-        if "production_selection" in res:
-            clf_name = res["production_selection"]["clf"]
-            clf_params = res["production_selection"]["params"]
-            source = "docs/report/results.json (validación)"
-        metrics_summary = res.get("summary", {})
-    print(f"Clasificador: {clf_name} {clf_params} (fuente: {source})")
+        recipe_metrics = json.loads(results_path.read_text()).get("recipe_summary", {})
+    print(f"Receta congelada: {recipe['name']} ({recipe['clf']} {recipe['params']}, PCA {recipe['n_pca']})")
 
-    # umbrales en validación de producción
+    # pasos 2–4 de la receta con la validación de producción (90 conocidos paso 10° + 10 pseudo-desconocidos)
     vs = production_validation_split(ds.labels, ds.angles)
-    m = VisionModel(clf_name, clf_params, n_pca=cfg["n_pca"], k_angle_refine=cfg["k_angle_refine"])
-    m.fit(X[vs["fit"]], names[vs["fit"]], ds.angles[vs["fit"]], ds.image_ids[vs["fit"]])
-    out = m.predict(X[vs["val"]], top_k=0)
-    unk = vs["val_is_unknown"]
-    correct = (out["label"] == names[vs["val"]]) & ~unk
-    err = circular_error(out["angle"], ds.angles[vs["val"]])
-    flagged = unreliable_angle_classes(names[vs["val"]][~unk], out["label"][~unk], err[~unk])
-    out["ambiguous"] = out["ambiguous"] | np.isin(out["label"], flagged)
-    print("Clases con ángulo poco fiable en validación:", flagged)
-    th, info = select_thresholds(correct, err, out["confidence"], out["angle_unc"], out["ambiguous"],
-                                 out["nn_distance"], is_unknown=unk, target_error=cfg["target_error_among_act"])
-    info.pop("grid", None)
+    cal = calibrate_recipe(X, names, ds.angles, ds.image_ids, vs["fit"], vs["val"], vs["val_is_unknown"], recipe)
+    th, info = cal["thresholds"], {k: v for k, v in cal["threshold_info"].items() if k != "grid"}
+    print("k (validación):", cal["k"], "| clases con ángulo poco fiable:", cal["flagged"])
     print("Umbrales (validación):", th.to_dict(), info)
 
-    # modelo final con todo
+    # paso 5: modelo final con todo
     t = time.time()
-    final = VisionModel(clf_name, clf_params, n_pca=cfg["n_pca"], k_angle_refine=cfg["k_angle_refine"])
+    final = VisionModel(recipe["clf"], recipe["params"], n_pca=recipe["n_pca"], k_angle_refine=cal["k"])
     final.fit(X, names, ds.angles, ds.image_ids)
     loo_symmetric = list(final.symmetric_classes)
-    final.symmetric_classes = sorted(set(final.symmetric_classes) | set(flagged))
+    final.symmetric_classes = sorted(set(final.symmetric_classes) | set(cal["flagged"]))
     print(f"Entrenamiento final: {time.time() - t:.1f}s; clases simétricas: {final.symmetric_classes}")
     qth = calibrate_quality(ds.images[::7])
+    git = _git_info()
+    versions = _lib_versions()
     meta = {
         "version": version,
         "stage": "production",
@@ -93,9 +106,13 @@ def main(argv=None) -> Path:
         "data_version_hash": dhash,
         "dataset": "COIL-100 (7.200 vistas, 100 objetos, paso 5°)",
         "seed": SEED,
-        "model_family": "clásico: HSV+HOG+LBP+Hu → estandarización → PCA → " + clf_name,
-        "classifier": {"name": clf_name, "params": clf_params, "selection_source": source},
-        "n_pca": cfg["n_pca"],
+        "recipe": recipe,
+        "model_family": "clásico: HSV+HOG+LBP+Hu → estandarización → PCA → " + recipe["clf"],
+        "classifier": {"name": recipe["clf"], "params": recipe["params"],
+                       "selection_source": "receta congelada (src/vision/recipe.py), elegida en la exploración por validación"},
+        "n_pca": recipe["n_pca"],
+        "k_angle_refine": cal["k"],
+        "k_table_val": cal["k_table"],
         "feature_config": fcfg.to_dict(),
         "thresholds": th.to_dict(),
         "threshold_validation": {**info, "pseudo_unknown_objects": [f"obj{o}" for o in vs["pseudo_unknown"]]},
@@ -103,26 +120,40 @@ def main(argv=None) -> Path:
         "angle_tolerance_deg": cfg["angle_tolerance_deg"],
         "classes": [str(c) for c in final.classes_],
         "symmetric_classes": final.symmetric_classes,
-        "symmetric_classes_sources": {"loo_twin_view": loo_symmetric, "validation_angle_unreliable": flagged},
+        "symmetric_classes_sources": {"loo_twin_view": loo_symmetric, "validation_angle_unreliable": cal["flagged"]},
         "symmetry_scores": {str(k): (None if not np.isfinite(v) else round(float(v), 4))
                             for k, v in final.symmetry_scores_.items()},
-        "metrics_summary": metrics_summary,
+        "metrics_note": ("Las métricas son las de la RECETA evaluada con test independiente en cada protocolo "
+                         "(docs/report/results.json → recipe); el artefacto usa las 7.200 vistas y no tiene test propio."),
+        "metrics_summary": recipe_metrics,
+        "git": git,
+        "library_versions": versions,
     }
     pred = VisionPredictor(final, meta)
     out_dir = pred.save(Path(args.out) / version)
-    print(f"Artefacto exportado en {out_dir} ({pred.metadata['artifact_size_mb']} MB)")
+    model_sha = sha256_file(out_dir / "model.joblib")
+    pred.metadata["model_sha256"] = model_sha
+    (out_dir / "metadata.json").write_text(json.dumps(pred.metadata, indent=2, ensure_ascii=False))
+    print(f"Artefacto exportado en {out_dir} ({pred.metadata['artifact_size_mb']} MB, sha256 {model_sha[:16]}…)")
     try:  # trazabilidad en MLflow (mismo store que los experimentos)
         import mlflow
 
         mlflow.set_tracking_uri(f"sqlite:///{ROOT / 'mlflow.db'}")
         mlflow.set_experiment("vision-coil100")
         with mlflow.start_run(run_name=f"train-{version}"):
-            mlflow.set_tags({"stage": "production", "version": version})
-            mlflow.log_params({"classifier": clf_name, "params": json.dumps(clf_params), "n_pca": cfg["n_pca"],
-                               "data_version_hash": dhash, "seed": SEED, **{f"th.{k}": v for k, v in th.to_dict().items()}})
-            mlflow.log_metrics({"val_coverage": info["val_coverage"], "val_error_among_act": info["val_error_among_act"],
+            mlflow.set_tags({"stage": "production", "version": version, "git_commit": git["commit"],
+                             "git_dirty": str(git["dirty"]), "model_sha256": model_sha, "recipe": recipe["name"]})
+            mlflow.log_params({"classifier": recipe["clf"], "params": json.dumps(recipe["params"]), "n_pca": recipe["n_pca"],
+                               "k_angle_refine": cal["k"], "data_version_hash": dhash, "seed": SEED,
+                               "model_sha256": model_sha, "git_commit": git["commit"], "git_dirty": git["dirty"],
+                               **{f"th.{k}": v for k, v in th.to_dict().items()},
+                               **{f"lib.{k}": v for k, v in versions.items()}})
+            mlflow.log_metrics({"val_coverage": info["val_coverage"], "val_n_act": info["val_n_act"],
+                                "val_error_among_act": info["val_error_among_act"] or 0.0,
                                 "artifact_size_mb": pred.metadata["artifact_size_mb"]})
             mlflow.log_artifact(str(out_dir / "metadata.json"))
+            mlflow.log_artifact(str(out_dir / "model.joblib"))
+            mlflow.log_artifact(str(ROOT / "src" / "vision" / "recipe.py"))
     except Exception as e:  # noqa: BLE001
         print("MLflow no disponible:", e)
     return out_dir

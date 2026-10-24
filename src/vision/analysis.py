@@ -313,12 +313,12 @@ def measure_resnet_latency(images: np.ndarray, n: int = 50) -> dict:
 
 def latency_figure(lat: dict):
     names = list(lat)
-    vals = [lat[k]["p50_ms"] for k in names]
+    vals = [lat[k].get("p50_ms", lat[k].get("mean_ms")) for k in names]
     fig, ax = plt.subplots(figsize=(6, 3))
     ax.barh(names, vals, color=[PALETTE.get(k.split()[0], "#555") for k in names])
     for i, v in enumerate(vals):
         ax.text(v, i, f" {v:.1f} ms", va="center", fontsize=8)
-    ax.set_xlabel("latencia p50 por imagen (ms, 1 imagen, CPU salvo indicado)")
+    ax.set_xlabel("ms por imagen (p50 de 1 imagen; la base es la media por imagen en lote)")
     ax.set_title("Latencia de inferencia")
     fig.tight_layout()
     return fig
@@ -351,3 +351,100 @@ def write_results(results: dict, path: Path | None = None) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(results, indent=1, ensure_ascii=False, default=float))
     return path
+
+
+# ---------------------------------------------------------------- receta congelada
+
+RECIPE_PROTOCOLS = ("A", "B", "C", "D", "D_strict")
+
+
+def _rate(x):
+    return x["rate"] if isinstance(x, dict) else x
+
+
+def recipe_row(r: dict) -> dict:
+    d = r["decision"]
+    e = d["error_among_act"]
+    row = {"class_accuracy": r.get("class_accuracy"), "angle_mae_deg": r.get("angle_mae_deg"),
+           "angle_within_10": r.get("angle_within_10"), "end_to_end_success": r.get("end_to_end_success"),
+           "coverage_act": d["coverage_act"], "review_rate": d["review_rate"], "reject_rate": d["reject_rate"],
+           "n_act": d["n_act"], "error_among_act": e["rate"], "error_among_act_wilson95": e["wilson95"],
+           "automation_enabled": r["automation_enabled"], "k": r["k_selected_on_val"], "thresholds": r["thresholds"],
+           "ece": r.get("ece")}
+    for k in ("auroc_nn_distance", "auroc_neg_confidence", "auroc_combined_rank"):
+        if k in r:
+            row[k] = r[k]
+    if "unknown_rejected" in d:
+        row["unknown_rejected"] = d["unknown_rejected"]["rate"]
+        row["unknown_rejected_wilson95"] = d["unknown_rejected"]["wilson95"]
+        row["unknown_reaches_act"] = d["unknown_reaches_act"]["rate"]
+        row["unknown_reaches_act_wilson95"] = d["unknown_reaches_act"]["wilson95"]
+    if "known_false_reject" in d:
+        row["known_false_reject"] = d["known_false_reject"]
+    return row
+
+
+def build_recipe_summary(recipe_results: dict, baselines: dict) -> dict:
+    out = {}
+    for p in RECIPE_PROTOCOLS:
+        out[p] = {"recipe_classic": recipe_row(recipe_results["classic"][p])}
+        if "resnet18" in recipe_results and p in recipe_results["resnet18"]:
+            out[p]["recipe_resnet18"] = recipe_row(recipe_results["resnet18"][p])
+        b = baselines[p]
+        out[p]["baseline_raw_1nn"] = {k: b.get(k) for k in ("class_accuracy", "angle_mae_deg", "angle_within_10",
+                                                             "end_to_end_success", "coverage_act")}
+        out[p]["baseline_raw_1nn"]["error_among_act"] = b["error_among_act"]["rate"]
+        out[p]["baseline_raw_1nn"]["error_among_act_wilson95"] = b["error_among_act"]["wilson95"]
+    return out
+
+
+def recipe_bars(summary: dict):
+    prots = list(summary)
+    metrics = [("class_accuracy", "Exactitud de clase (conocidos)"), ("end_to_end_success", "Éxito e2e (sin rechazo)"),
+               ("coverage_act", "Fracción automatizada (ACT)"), ("error_among_act", "Error entre ACT")]
+    fig, axes = plt.subplots(1, len(metrics), figsize=(16, 3.4))
+    w = 0.27
+    series = [("Receta clásica (prod.)", "recipe_classic", PALETTE["classic"]),
+              ("Base píxeles 1-NN", "baseline_raw_1nn", PALETTE["baseline"]),
+              ("Receta con ResNet18", "recipe_resnet18", PALETTE["resnet18"])]
+    for k, (m, title) in enumerate(metrics):
+        ax = axes[k]
+        for s, (name, key, col) in enumerate(series):
+            vals = [summary[p].get(key, {}).get(m) for p in prots]
+            vals = [np.nan if v is None else v for v in vals]
+            ax.bar(np.arange(len(prots)) + (s - 1) * w, vals, w, label=name, color=col)
+        ax.set_xticks(range(len(prots)), [p.replace("_strict", "\nestricto") for p in prots], fontsize=8)
+        ax.set_title(title, fontsize=9)
+        ax.set_ylim(0, 1.05)
+    axes[0].legend(fontsize=7, loc="lower left")
+    fig.suptitle("Receta congelada evaluada con test independiente por protocolo (N/A = sin ACT → barra ausente)", fontsize=9)
+    fig.tight_layout()
+    return fig
+
+
+def sweep_figure(recipe_res: dict, protocols=("A", "D")):
+    """Riesgo entre ACT (IC Wilson 95 %) vs umbral de incertidumbre: validación (selección) y test (descriptivo)."""
+    fig, axes = plt.subplots(1, len(protocols), figsize=(6 * len(protocols), 3.6))
+    for ax, p in zip(np.atleast_1d(axes), protocols):
+        r = recipe_res[p]
+        for rows, lab, key_n, col in ((r["val_uncertainty_grid"], "validación", "val", PALETTE["classic"]),
+                                      (r["test_uncertainty_sweep_descriptive"], "test (descriptivo)", "test", PALETTE["resnet18"])):
+            u = np.array([x["max_angle_uncertainty_deg"] for x in rows], float)
+            if key_n == "val":
+                rate = np.array([np.nan if x["n_act"] == 0 else x["error_among_act"] for x in rows], float)
+                lo = np.array([np.nan if x["wilson95_low"] is None else x["wilson95_low"] for x in rows], float)
+                hi = np.array([np.nan if x["wilson95_high"] is None else x["wilson95_high"] for x in rows], float)
+            else:
+                rate = np.array([np.nan if x["risk_rate"] is None else x["risk_rate"] for x in rows], float)
+                lo = np.array([np.nan if x["risk_wilson95"][0] is None else x["risk_wilson95"][0] for x in rows], float)
+                hi = np.array([np.nan if x["risk_wilson95"][1] is None else x["risk_wilson95"][1] for x in rows], float)
+            ax.plot(u, rate, "o-", ms=3, color=col, label=lab)
+            ax.fill_between(u, lo, hi, color=col, alpha=0.2)
+        ax.axhline(r["threshold_validation"]["target_error"], color="k", ls="--", lw=0.8, label="objetivo 2 %")
+        ax.axvline(r["thresholds"]["max_angle_uncertainty_deg"], color="g", ls=":", lw=1, label="umbral elegido")
+        ax.set_xlabel("umbral de incertidumbre angular (score en °)")
+        ax.set_ylabel("P(clase incorrecta o |error|>10° | ACT)")
+        ax.set_title(f"Protocolo {p}")
+        ax.legend(fontsize=7)
+    fig.tight_layout()
+    return fig

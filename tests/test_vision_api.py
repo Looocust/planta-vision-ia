@@ -34,6 +34,10 @@ def _load(o, a):
 
 @pytest.fixture(scope="module")
 def client(tmp_path_factory):
+    import tempfile
+
+    # todo lo temporal (modelos, staging y archivos multipart grandes) bajo el directorio de pytest
+    tempfile.tempdir = str(tmp_path_factory.mktemp("spool"))
     root = tmp_path_factory.mktemp("models")
     imgs, labels, angles, ids = [], [], [], []
     for o in OBJS:
@@ -111,6 +115,17 @@ def test_admin_thresholds_and_auth(client):
     assert client.put("/v1/admin/thresholds", json={"min_class_confidence": 0.3}).status_code == 401
     r = client.put("/v1/admin/thresholds", json={"min_class_confidence": 0.3}, headers={"X-Admin-Token": "test-token"})
     assert r.status_code == 200 and r.json()["min_class_confidence"] == 0.3
+
+
+@pytest.mark.parametrize("bad", [{"max_angle_uncertainty_deg": "NaN"}, {"min_class_confidence": "Infinity"},
+                                 {"min_class_confidence": 1.5}, {"unknown_distance": -3},
+                                 {"max_angle_uncertainty_deg": 500}, {"min_class_confidence": 0.1, "unknown_distance": "NaN"}])
+def test_admin_thresholds_reject_invalid_atomically(client, bad):
+    h = {"X-Admin-Token": "test-token"}
+    before = client.get("/v1/model").json()["thresholds"]
+    r = client.put("/v1/admin/thresholds", json=bad, headers=h)
+    assert r.status_code in (400, 422), r.text
+    assert client.get("/v1/model").json()["thresholds"] == before  # nada se modificó
 
 
 def test_stage_and_promote_sku(client):

@@ -69,8 +69,8 @@ def _decision_metrics(out, true_names, true_angles, th: DecisionThresholds, is_u
         "coverage_act": float(act.mean()),
         "review_rate": float((dec == "REVIEW").mean()),
         "reject_rate": float((dec == "REJECT").mean()),
-        "error_among_act": float(1 - success[act].mean()) if act.any() else 0.0,
-        "wrong_class_among_act": float(1 - correct[act].mean()) if act.any() else 0.0,
+        "error_among_act": float(1 - success[act].mean()) if act.any() else float("nan"),
+        "wrong_class_among_act": float(1 - correct[act].mean()) if act.any() else float("nan"),
         "n_act": int(act.sum()),
         "automated_success_rate": float((act & success).mean()),
     }
@@ -210,14 +210,13 @@ def run_protocol(protocol: str, data: dict, feature_key: str = "classic", grid: 
             res["_selected_out"]["true_angle"] = angles[te]
             res["_selected_out"]["is_unknown"] = te_unk if te_unk is not None else np.zeros(len(te), bool)
             res["_selected_reliability"] = rel
-    # 5) línea base (solo en clásicas para no repetir)
+    # 5) línea base (solo en clásicas para no repetir): siempre actúa; los desconocidos cuentan como error entre ACT
     if feature_key == "classic":
-        bm, bd = baseline_raw_1nn(data["raw"], names, angles, tr, te[(~te_unk) if te_unk is not None else slice(None)])
-        if te_unk is not None:
-            _, bd_all = baseline_raw_1nn(data["raw"], names, angles, tr, te)
-            bm["auroc_nn_distance"] = auroc(bd_all, te_unk)
-        bm["coverage_act"] = 1.0
-        bm["error_among_act"] = 1 - bm["end_to_end_success"]
+        from .recipe import baseline_protocol
+
+        bm = baseline_protocol(protocol, data)
+        bm["error_among_act_ci"] = bm["error_among_act"]
+        bm["error_among_act"] = bm["error_among_act"]["rate"]
         res["baseline_raw_1nn"] = bm
         log(f"[{protocol}] BASELINE raw 1-NN: {bm}")
     return res

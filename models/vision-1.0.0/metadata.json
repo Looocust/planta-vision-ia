@@ -1,19 +1,54 @@
 {
   "version": "vision-1.0.0",
   "stage": "production",
-  "created_at": "2026-10-24T17:31:53.267581+00:00",
+  "created_at": "2026-10-24T17:54:02.059527+00:00",
   "data_version_hash": "e9e73124fbf0e964a5248ac55d915dfb58603be5534f82aeda1cababc126bbeb",
   "dataset": "COIL-100 (7.200 vistas, 100 objetos, paso 5°)",
   "seed": 42,
+  "recipe": {
+    "name": "classic-logreg-v1",
+    "features": "HSV(16x4x4)+HOG(64px,9or,8x8)+LBP(u8,2x2)+Hu → StandardScaler → PCA(150)",
+    "clf": "logreg",
+    "params": {
+      "C": 1.0
+    },
+    "n_pca": 150,
+    "k_candidates": [
+      1,
+      2,
+      3
+    ],
+    "target_error": 0.02,
+    "min_act": 50,
+    "unreliable_max_fail_rate": 0.25
+  },
   "model_family": "clásico: HSV+HOG+LBP+Hu → estandarización → PCA → logreg",
   "classifier": {
     "name": "logreg",
     "params": {
       "C": 1.0
     },
-    "selection_source": "docs/report/results.json (validación)"
+    "selection_source": "receta congelada (src/vision/recipe.py), elegida en la exploración por validación"
   },
   "n_pca": 150,
+  "k_angle_refine": 1,
+  "k_table_val": [
+    {
+      "k": 1,
+      "val_within_10": 0.981167026860142,
+      "val_mae_deg": 6.176288978079654
+    },
+    {
+      "k": 2,
+      "val_within_10": 0.9808582895955542,
+      "val_mae_deg": 2.8271000352263815
+    },
+    {
+      "k": 3,
+      "val_within_10": 0.9802408150663785,
+      "val_mae_deg": 3.267863726315379
+    }
+  ],
   "feature_config": {
     "size": 128,
     "hog_size": 64,
@@ -42,9 +77,16 @@
     "unknown_distance": 19.47063943862915
   },
   "threshold_validation": {
+    "val_n_act": 2901,
+    "val_n_errors": 21,
     "val_coverage": 0.7325757575757575,
-    "val_error_among_act": 0.0079283005860048,
+    "val_error_among_act": 0.007238883143743537,
+    "val_error_wilson95": [
+      0.004739572855841491,
+      0.011041528599053671
+    ],
     "target_error": 0.02,
+    "min_act": 50,
     "angle_threshold_source": "validation",
     "automation_enabled": true,
     "pseudo_unknown_objects": [
@@ -294,228 +336,378 @@
     "obj98": 0.4028,
     "obj99": 0.0
   },
+  "metrics_note": "Las métricas son las de la RECETA evaluada con test independiente en cada protocolo (docs/report/results.json → recipe); el artefacto usa las 7.200 vistas y no tiene test propio.",
   "metrics_summary": {
     "A": {
-      "classic_selected": {
-        "clf": "logreg",
-        "params": {
-          "C": 0.1
-        }
-      },
-      "classic": {
-        "class_accuracy": 0.9997222222222222,
-        "angle_mae_deg": 2.706824308432173,
-        "angle_median_deg": 1.321710871761411,
-        "angle_within_10": 0.9808280077799388,
-        "end_to_end_success": 0.9805555555555555,
-        "coverage_act": 0.9213888888888889,
-        "review_rate": 0.07861111111111112,
+      "recipe_classic": {
+        "class_accuracy": 1.0,
+        "angle_mae_deg": 2.706623245986676,
+        "angle_within_10": 0.9808333333333333,
+        "end_to_end_success": 0.9808333333333333,
+        "coverage_act": 0.9216666666666666,
+        "review_rate": 0.07833333333333334,
         "reject_rate": 0.0,
-        "error_among_act": 0.002110340669279509,
-        "ece": 0.014276951567994241,
-        "known_false_reject": 0.0,
-        "predict_ms_per_image_batch": 0.0987611214319865
+        "n_act": 3318,
+        "error_among_act": 0.002109704641350211,
+        "error_among_act_wilson95": [
+          0.0010223101779348804,
+          0.004348686440326506
+        ],
+        "automation_enabled": true,
+        "k": 2,
+        "thresholds": {
+          "min_class_confidence": 0.4,
+          "max_angle_uncertainty_deg": 30.0,
+          "unknown_distance": 36.291108016967776
+        },
+        "ece": 0.0025858692824840762,
+        "known_false_reject": 0.0
+      },
+      "recipe_resnet18": {
+        "class_accuracy": 1.0,
+        "angle_mae_deg": 1.982566399932625,
+        "angle_within_10": 0.9877777777777778,
+        "end_to_end_success": 0.9877777777777778,
+        "coverage_act": 0.0,
+        "review_rate": 1.0,
+        "reject_rate": 0.0,
+        "n_act": 0,
+        "error_among_act": null,
+        "error_among_act_wilson95": [
+          null,
+          null
+        ],
+        "automation_enabled": false,
+        "k": 2,
+        "thresholds": {
+          "min_class_confidence": 0.8,
+          "max_angle_uncertainty_deg": -1.0,
+          "unknown_distance": 14.023426361083983
+        },
+        "ece": 0.003519831399122827,
+        "known_false_reject": 0.0
       },
       "baseline_raw_1nn": {
         "class_accuracy": 0.9997222222222222,
         "angle_mae_deg": 5.928035565434843,
-        "angle_median_deg": 5.0,
         "angle_within_10": 0.9761044734648513,
         "end_to_end_success": 0.9758333333333333,
         "coverage_act": 1.0,
-        "error_among_act": 0.02416666666666667,
-        "predict_ms_per_image_batch": 0.5586444669299656
-      },
-      "resnet18_selected": {
-        "clf": "knn",
-        "params": {
-          "n_neighbors": 1
-        }
-      },
-      "resnet18": {
-        "class_accuracy": 1.0,
-        "angle_mae_deg": 1.982566399932625,
-        "angle_median_deg": 1.3970180283587084,
-        "angle_within_10": 0.9877777777777778,
-        "end_to_end_success": 0.9877777777777778,
-        "coverage_act": 0.7177777777777777,
-        "review_rate": 0.2822222222222222,
-        "reject_rate": 0.0,
-        "error_among_act": 0.003095975232198178,
-        "ece": 0.0,
-        "known_false_reject": 0.0,
-        "predict_ms_per_image_batch": 0.14226635297139487
+        "error_among_act": 0.024166666666666666,
+        "error_among_act_wilson95": [
+          0.019634472983872966,
+          0.02971331189102275
+        ]
       }
     },
     "B": {
-      "classic_selected": {
-        "clf": "logreg",
-        "params": {
-          "C": 1.0
-        }
-      },
-      "classic": {
+      "recipe_classic": {
         "class_accuracy": 0.97,
-        "angle_mae_deg": 67.47187485874315,
-        "angle_median_deg": 26.601748254318053,
-        "angle_within_10": 0.16924398625429554,
-        "end_to_end_success": 0.16416666666666666,
+        "angle_mae_deg": 66.46907216494846,
+        "angle_within_10": 0.2860824742268041,
+        "end_to_end_success": 0.2775,
         "coverage_act": 0.0,
         "review_rate": 0.9975,
         "reject_rate": 0.0025,
-        "error_among_act": 0.0,
+        "n_act": 0,
+        "error_among_act": null,
+        "error_among_act_wilson95": [
+          null,
+          null
+        ],
+        "automation_enabled": false,
+        "k": 1,
+        "thresholds": {
+          "min_class_confidence": 0.6,
+          "max_angle_uncertainty_deg": -1.0,
+          "unknown_distance": 38.781916694641104
+        },
         "ece": 0.0177038169900576,
-        "known_false_reject": 0.0025,
-        "predict_ms_per_image_batch": 0.12231608231862387
+        "known_false_reject": 0.0025
+      },
+      "recipe_resnet18": {
+        "class_accuracy": 0.9966666666666667,
+        "angle_mae_deg": 48.32357859531773,
+        "angle_within_10": 0.2801003344481605,
+        "end_to_end_success": 0.2791666666666667,
+        "coverage_act": 0.0,
+        "review_rate": 0.9875,
+        "reject_rate": 0.0125,
+        "n_act": 0,
+        "error_among_act": null,
+        "error_among_act_wilson95": [
+          null,
+          null
+        ],
+        "automation_enabled": false,
+        "k": 1,
+        "thresholds": {
+          "min_class_confidence": 0.6,
+          "max_angle_uncertainty_deg": -1.0,
+          "unknown_distance": 16.094745807647705
+        },
+        "ece": 0.015361323927839558,
+        "known_false_reject": 0.0125
       },
       "baseline_raw_1nn": {
         "class_accuracy": 0.9291666666666667,
         "angle_mae_deg": 61.224215246636774,
-        "angle_median_deg": 20.0,
         "angle_within_10": 0.3076233183856502,
         "end_to_end_success": 0.28583333333333333,
         "coverage_act": 1.0,
         "error_among_act": 0.7141666666666666,
-        "predict_ms_per_image_batch": 0.4801056782404582
-      },
-      "resnet18_selected": {
-        "clf": "logreg",
-        "params": {
-          "C": 1.0
-        }
-      },
-      "resnet18": {
-        "class_accuracy": 0.9966666666666667,
-        "angle_mae_deg": 49.40525054466411,
-        "angle_median_deg": 26.10125880373667,
-        "angle_within_10": 0.1588628762541806,
-        "end_to_end_success": 0.15833333333333333,
-        "coverage_act": 0.0,
-        "review_rate": 0.9875,
-        "reject_rate": 0.0125,
-        "error_among_act": 0.0,
-        "ece": 0.015361323927839558,
-        "known_false_reject": 0.0125,
-        "predict_ms_per_image_batch": 0.18174250920613605
+        "error_among_act_wilson95": [
+          0.6879513278914753,
+          0.739015143444953
+        ]
       }
     },
     "C": {
-      "classic_selected": {
-        "clf": "logreg",
-        "params": {
-          "C": 1.0
-        }
-      },
-      "classic": {
+      "recipe_classic": {
         "class_accuracy": 0.9911666666666666,
-        "angle_mae_deg": 9.39365094317862,
-        "angle_median_deg": 4.719161469045289,
-        "angle_within_10": 0.8987724903312595,
-        "end_to_end_success": 0.8908333333333334,
-        "coverage_act": 0.0003333333333333333,
-        "review_rate": 0.9941666666666666,
+        "angle_mae_deg": 13.127627375147133,
+        "angle_within_10": 0.704725071464604,
+        "end_to_end_success": 0.6985,
+        "coverage_act": 0.0,
+        "review_rate": 0.9945,
         "reject_rate": 0.0055,
-        "error_among_act": 0.0,
+        "n_act": 0,
+        "error_among_act": null,
+        "error_among_act_wilson95": [
+          null,
+          null
+        ],
+        "automation_enabled": false,
+        "k": 1,
+        "thresholds": {
+          "min_class_confidence": 0.7,
+          "max_angle_uncertainty_deg": -1.0,
+          "unknown_distance": 42.35209327697753
+        },
         "ece": 0.01810208589707815,
-        "known_false_reject": 0.0055,
-        "predict_ms_per_image_batch": 0.10008498032887776
+        "known_false_reject": 0.0055
+      },
+      "recipe_resnet18": {
+        "class_accuracy": 0.9998333333333334,
+        "angle_mae_deg": 11.351058509751626,
+        "angle_within_10": 0.698283047174529,
+        "end_to_end_success": 0.6981666666666667,
+        "coverage_act": 0.0,
+        "review_rate": 1.0,
+        "reject_rate": 0.0,
+        "n_act": 0,
+        "error_among_act": null,
+        "error_among_act_wilson95": [
+          null,
+          null
+        ],
+        "automation_enabled": false,
+        "k": 1,
+        "thresholds": {
+          "min_class_confidence": 0.5,
+          "max_angle_uncertainty_deg": -1.0,
+          "unknown_distance": 23.340314445495604
+        },
+        "ece": 0.010426689147949177,
+        "known_false_reject": 0.0
       },
       "baseline_raw_1nn": {
         "class_accuracy": 0.9738333333333333,
         "angle_mae_deg": 14.024473729248674,
-        "angle_median_deg": 10.0,
         "angle_within_10": 0.7627930857436248,
         "end_to_end_success": 0.7428333333333333,
         "coverage_act": 1.0,
         "error_among_act": 0.25716666666666665,
-        "predict_ms_per_image_batch": 0.0718470017115275
-      },
-      "resnet18_selected": {
-        "clf": "logreg",
-        "params": {
-          "C": 0.1
-        }
-      },
-      "resnet18": {
-        "class_accuracy": 0.9995,
-        "angle_mae_deg": 7.675909032003872,
-        "angle_median_deg": 4.67560709190542,
-        "angle_within_10": 0.8737702184425546,
-        "end_to_end_success": 0.8733333333333333,
-        "coverage_act": 0.0,
-        "review_rate": 1.0,
-        "reject_rate": 0.0,
-        "error_among_act": 0.0,
-        "ece": 0.052326429153482124,
-        "known_false_reject": 0.0,
-        "predict_ms_per_image_batch": 0.06715583801269531
+        "error_among_act_wilson95": [
+          0.24626504365356955,
+          0.26837904689005826
+        ]
       }
     },
     "D": {
-      "classic_selected": {
-        "clf": "logreg",
-        "params": {
-          "C": 10.0
-        }
-      },
-      "classic": {
+      "recipe_classic": {
         "class_accuracy": 1.0,
-        "angle_mae_deg": 2.628214158889033,
-        "angle_median_deg": 1.3092399353539577,
-        "angle_within_10": 0.9845679012345679,
-        "end_to_end_success": 0.9845679012345679,
-        "coverage_act": 0.7628787878787879,
-        "review_rate": 0.0952020202020202,
+        "angle_mae_deg": 3.0746535708382137,
+        "angle_within_10": 0.9842592592592593,
+        "end_to_end_success": 0.9842592592592593,
+        "coverage_act": 0.7704545454545455,
+        "review_rate": 0.08762626262626262,
         "reject_rate": 0.14191919191919192,
-        "error_among_act": 0.014564713670969898,
-        "ece": 0.0005297513287743879,
+        "n_act": 3051,
+        "error_among_act": 0.006555227794165847,
+        "error_among_act_wilson95": [
+          0.00424753018295751,
+          0.010103983165557842
+        ],
+        "automation_enabled": true,
+        "k": 3,
+        "thresholds": {
+          "min_class_confidence": 0.9,
+          "max_angle_uncertainty_deg": 12.5,
+          "unknown_distance": 24.48561725616456
+        },
+        "ece": 0.002555867220148588,
         "auroc_nn_distance": 0.979871827846365,
-        "auroc_neg_confidence": 0.98903420781893,
-        "auroc_combined_rank": 0.991045310356653,
+        "auroc_neg_confidence": 0.9949299125514404,
+        "auroc_combined_rank": 0.9925861625514403,
         "unknown_rejected": 0.7125,
-        "unknown_false_accept_act": 0.05138888888888889,
-        "unknown_not_act": 0.9486111111111111,
-        "known_false_reject": 0.015123456790123457,
-        "predict_ms_per_image_batch": 0.133959392104486
+        "unknown_rejected_wilson95": [
+          0.6783809017444715,
+          0.7443635218973861
+        ],
+        "unknown_reaches_act": 0.015277777777777777,
+        "unknown_reaches_act_wilson95": [
+          0.00855182031226493,
+          0.027148808112517506
+        ],
+        "known_false_reject": 0.015123456790123457
+      },
+      "recipe_resnet18": {
+        "class_accuracy": 1.0,
+        "angle_mae_deg": 1.945202429033251,
+        "angle_within_10": 0.9901234567901235,
+        "end_to_end_success": 0.9901234567901235,
+        "coverage_act": 0.0,
+        "review_rate": 0.8469696969696969,
+        "reject_rate": 0.15303030303030302,
+        "n_act": 0,
+        "error_among_act": null,
+        "error_among_act_wilson95": [
+          null,
+          null
+        ],
+        "automation_enabled": false,
+        "k": 2,
+        "thresholds": {
+          "min_class_confidence": 0.9,
+          "max_angle_uncertainty_deg": -1.0,
+          "unknown_distance": 11.644436788558961
+        },
+        "ece": 0.0030665925255528217,
+        "auroc_nn_distance": 0.9812945816186557,
+        "auroc_neg_confidence": 0.9558309756515775,
+        "auroc_combined_rank": 0.9747380829903978,
+        "unknown_rejected": 0.8347222222222223,
+        "unknown_rejected_wilson95": [
+          0.8058284729046873,
+          0.8600630702174544
+        ],
+        "unknown_reaches_act": 0.0,
+        "unknown_reaches_act_wilson95": [
+          0.0,
+          0.005307238489746928
+        ],
+        "known_false_reject": 0.0015432098765432098
       },
       "baseline_raw_1nn": {
         "class_accuracy": 1.0,
         "angle_mae_deg": 5.941358024691358,
-        "angle_median_deg": 5.0,
         "angle_within_10": 0.9780864197530864,
         "end_to_end_success": 0.9780864197530864,
         "coverage_act": 1.0,
-        "error_among_act": 0.02191358024691359,
-        "auroc_nn_distance": 0.9713843878600823,
-        "predict_ms_per_image_batch": 0.27415619956122506
+        "error_among_act": 0.19974747474747476,
+        "error_among_act_wilson95": [
+          0.18758842738123843,
+          0.21248850808459857
+        ]
+      }
+    },
+    "D_strict": {
+      "recipe_classic": {
+        "class_accuracy": null,
+        "angle_mae_deg": null,
+        "angle_within_10": null,
+        "end_to_end_success": null,
+        "coverage_act": 0.04861111111111111,
+        "review_rate": 0.1763888888888889,
+        "reject_rate": 0.775,
+        "n_act": 35,
+        "error_among_act": 1.0,
+        "error_among_act_wilson95": [
+          0.9010957324106112,
+          1.0
+        ],
+        "automation_enabled": true,
+        "k": 1,
+        "thresholds": {
+          "min_class_confidence": 0.95,
+          "max_angle_uncertainty_deg": 30.0,
+          "unknown_distance": 22.463531684875488
+        },
+        "ece": null,
+        "unknown_rejected": 0.775,
+        "unknown_rejected_wilson95": [
+          0.743084314242311,
+          0.8039967045883282
+        ],
+        "unknown_reaches_act": 0.04861111111111111,
+        "unknown_reaches_act_wilson95": [
+          0.035157809718621716,
+          0.06685566947351092
+        ]
       },
-      "resnet18_selected": {
-        "clf": "knn",
-        "params": {
-          "n_neighbors": 1
-        }
+      "recipe_resnet18": {
+        "class_accuracy": null,
+        "angle_mae_deg": null,
+        "angle_within_10": null,
+        "end_to_end_success": null,
+        "coverage_act": 0.022222222222222223,
+        "review_rate": 0.07777777777777778,
+        "reject_rate": 0.9,
+        "n_act": 16,
+        "error_among_act": 1.0,
+        "error_among_act_wilson95": [
+          0.8063865817272802,
+          1.0
+        ],
+        "automation_enabled": true,
+        "k": 3,
+        "thresholds": {
+          "min_class_confidence": 0.95,
+          "max_angle_uncertainty_deg": 20.0,
+          "unknown_distance": 10.180848875045772
+        },
+        "ece": null,
+        "unknown_rejected": 0.9,
+        "unknown_rejected_wilson95": [
+          0.8759190047560007,
+          0.9198352044522017
+        ],
+        "unknown_reaches_act": 0.022222222222222223,
+        "unknown_reaches_act_wilson95": [
+          0.013723980106468131,
+          0.03579182556151227
+        ]
       },
-      "resnet18": {
-        "class_accuracy": 1.0,
-        "angle_mae_deg": 1.945202429033251,
-        "angle_median_deg": 1.3778362150951047,
-        "angle_within_10": 0.9901234567901235,
-        "end_to_end_success": 0.9901234567901235,
-        "coverage_act": 0.5924242424242424,
-        "review_rate": 0.2545454545454545,
-        "reject_rate": 0.15303030303030302,
-        "error_among_act": 0.0034100596760443525,
-        "ece": 0.0,
-        "auroc_nn_distance": 0.9812945816186557,
-        "auroc_neg_confidence": 0.5,
-        "auroc_combined_rank": 0.9812945816186557,
-        "unknown_rejected": 0.8347222222222223,
-        "unknown_false_accept_act": 0.0,
-        "unknown_not_act": 1.0,
-        "known_false_reject": 0.0015432098765432098,
-        "predict_ms_per_image_batch": 0.12602806091308594
+      "baseline_raw_1nn": {
+        "class_accuracy": null,
+        "angle_mae_deg": null,
+        "angle_within_10": null,
+        "end_to_end_success": null,
+        "coverage_act": 1.0,
+        "error_among_act": 1.0,
+        "error_among_act_wilson95": [
+          0.9946927615102529,
+          0.9999999999999999
+        ]
       }
     }
   },
-  "artifact_size_mb": 9.4
+  "git": {
+    "commit": "3aa0bbbfc3e3549914b4b199ae914ad24331e667",
+    "dirty": true,
+    "note": "dirty=True: el árbol tenía cambios sin commit al entrenar"
+  },
+  "library_versions": {
+    "python": "3.12.0",
+    "numpy": "2.5.4",
+    "scikit-learn": "1.9.1",
+    "scikit-image": "0.26.0",
+    "opencv-python-headless": "5.0.0.93",
+    "joblib": "1.6.0",
+    "scipy": "1.18.1",
+    "mlflow": "3.17.2"
+  },
+  "artifact_size_mb": 9.4,
+  "model_sha256": "19cbc8a4516b0ecb583ffcb2e11d0bd3bba07cc4578945fc43307c650fc44d24"
 }

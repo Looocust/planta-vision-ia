@@ -1,11 +1,15 @@
 """Genera docs/report/vision_report.pdf y docs/model_card.md a partir de docs/report/results.json,
 models/vision-1.0.0/metadata.json y las figuras de docs/report/figures/ (todas producidas por el notebook).
 
+Las cifras de cabecera son las de la RECETA PRODUCTIVA CONGELADA (src/vision/recipe.py) evaluada con test
+independiente por protocolo; la exploración de clasificadores se reporta aparte.
+
 Uso: uv run python scripts/build_vision_report.py
 """
 from __future__ import annotations
 
 import json
+import re
 from datetime import date
 from pathlib import Path
 
@@ -22,67 +26,111 @@ REP = ROOT / "docs" / "report"
 FIG = REP / "figures"
 RES = json.loads((REP / "results.json").read_text())
 META = json.loads((ROOT / "models" / "vision-1.0.0" / "metadata.json").read_text())
-S = RES["summary"]
-P = ["A", "B", "C", "D"]
-PNAME = {"A": "A · Interpolación", "B": "B · Sector ciego 60°", "C": "C · Escasez (12 vistas)", "D": "D · Objeto desconocido"}
+RS = RES["recipe_summary"]
+RR = RES["recipe"]["results"]["classic"]
+RECIPE = RES["recipe"]["recipe"]
+P = ["A", "B", "C", "D_strict", "D"]
+PNAME = {"A": "A · Interpolación", "B": "B · Sector ciego 60°", "C": "C · Escasez (12 vistas)",
+         "D_strict": "D estricto · desconocidos", "D": "D variante · mixto"}
 
 
 def pct(x, d=1):
-    return "—" if x is None else f"{100 * x:.{d}f}%"
+    return "N/A" if x is None else f"{100 * x:.{d}f}%"
 
 
 def num(x, d=2):
     return "—" if x is None else f"{x:.{d}f}"
 
 
-# ---------------------------------------------------------------- textos compartidos (PDF y model card)
+def ci(x, d=2):
+    return "N/A" if not x or x[0] is None else f"[{100 * x[0]:.{d}f}, {100 * x[1]:.{d}f}]%"
+
+
+def deg(x):
+    return "—" if x is None else f"{x:.2f}°"
+
+
+# ---------------------------------------------------------------- tablas
 
 def headline_rows():
-    rows = [["Protocolo", "Exactitud", "MAE ángulo", "≤10°", "Éxito e2e", "% ACT", "Error | ACT", "AUROC desc."]]
+    rows = [["Protocolo", "Exactitud", "MAE ángulo", "≤10°", "Éxito e2e", "% ACT", "n ACT", "Error|ACT", "IC95 Wilson"]]
     for p in P:
-        c = S[p]["classic"]
-        rows.append([PNAME[p], pct(c["class_accuracy"], 2), f"{c['angle_mae_deg']:.2f}°", pct(c["angle_within_10"]),
-                     pct(c["end_to_end_success"]), pct(c["coverage_act"]), pct(c["error_among_act"], 2),
-                     num(c.get("auroc_combined_rank"), 3) if p == "D" else "—"])
+        c = RS[p]["recipe_classic"]
+        rows.append([PNAME[p], pct(c["class_accuracy"], 2), deg(c["angle_mae_deg"]), pct(c["angle_within_10"]),
+                     pct(c["end_to_end_success"]), pct(c["coverage_act"]), c["n_act"], pct(c["error_among_act"], 2),
+                     ci(c["error_among_act_wilson95"])])
+    return rows
+
+
+def thresholds_rows():
+    rows = [["Protocolo", "k (val)", "Conf. mín.", "Incert. máx.", "Dist. desconocido", "Val: n ACT", "Val: error|ACT", "Automatización"]]
+    for p in P:
+        r = RR[p]
+        t, v = r["thresholds"], r["threshold_validation"]
+        rows.append([PNAME[p], r["k_selected_on_val"], num(t["min_class_confidence"]),
+                     "desactivada" if t["max_angle_uncertainty_deg"] < 0 else f"{t['max_angle_uncertainty_deg']:.1f}°",
+                     num(t["unknown_distance"]), v["val_n_act"], pct(v["val_error_among_act"], 2),
+                     "sí" if r["automation_enabled"] else "no"])
     return rows
 
 
 def comparison_rows():
-    rows = [["Prot.", "Modelo", "Exactitud", "MAE ángulo", "Éxito e2e", "% ACT", "Error | ACT"]]
+    rows = [["Prot.", "Modelo", "Exactitud", "MAE ángulo", "Éxito e2e", "% ACT", "Error|ACT", "IC95"]]
     for p in P:
-        for key, lab in (("classic", "Clásico (prod.)"), ("baseline_raw_1nn", "Base: píxeles 1-NN"), ("resnet18", "ResNet18 congelada")):
-            m = S[p].get(key)
+        for key, lab in (("recipe_classic", "Receta clásica (prod.)"), ("baseline_raw_1nn", "Base píxeles 1-NN (siempre ACT)"),
+                         ("recipe_resnet18", "Receta con ResNet18")):
+            m = RS[p].get(key)
             if not m:
                 continue
-            rows.append([p, lab, pct(m["class_accuracy"], 2), f"{m['angle_mae_deg']:.2f}°", pct(m["end_to_end_success"]),
-                         pct(m.get("coverage_act", 1.0)), pct(m.get("error_among_act"), 2)])
+            rows.append([p.replace("_strict", " estr."), lab, pct(m["class_accuracy"], 2), deg(m["angle_mae_deg"]),
+                         pct(m["end_to_end_success"]), pct(m["coverage_act"]), pct(m["error_among_act"], 2),
+                         ci(m.get("error_among_act_wilson95"))])
     return rows
 
 
-def all_classifier_rows(feature="classic"):
-    rows = [["Prot.", "Clasificador", "Exactitud", "MAE°", "Éxito e2e", "% ACT", "Error|ACT", "ECE", "fit (s)"]]
-    for p in P:
+def exploration_rows(feature="classic"):
+    rows = [["Prot.", "Clasificador", "Exactitud", "MAE°", "Éxito e2e", "ECE", "fit (s)"]]
+    for p in ["A", "B", "C", "D"]:
         r = RES["protocols"][p][feature]
         for clf, m in r["test"].items():
             star = " *" if clf == r["selected"]["clf"] else ""
             rows.append([p, clf + star, pct(m["class_accuracy"], 2), num(m["angle_mae_deg"]), pct(m["end_to_end_success"]),
-                         pct(m["coverage_act"]), pct(m["error_among_act"], 2), num(m["ece"], 3), num(m["fit_s"], 1)])
+                         num(m["ece"], 3), num(m["fit_s"], 1)])
+    return rows
+
+
+def val_rows():
+    rows = [["Clasificador / params"] + ["val A", "val B", "val C", "val D"]]
+    acc = {}
+    for p in ["A", "B", "C", "D"]:
+        for k, m in RES["protocols"][p]["classic"]["validation"].items():
+            acc.setdefault(k, {})[p] = m["class_accuracy"]
+    for k, v in acc.items():
+        rows.append([k.replace(":", " ")] + [pct(v.get(p), 2) for p in ["A", "B", "C", "D"]])
     return rows
 
 
 def lat_rows():
     lat = RES["cost"]["latency"]
-    rows = [["Pipeline", "p50 (ms)", "p95 (ms)"]]
+    rows = [["Medición", "p50 (ms)", "p95 (ms)", "media (ms)"]]
     for k, v in lat.items():
-        rows.append([k, num(v.get("p50_ms"), 2), num(v.get("p95_ms"), 2) if "p95_ms" in v else "—"])
+        rows.append([k, num(v.get("p50_ms")), num(v.get("p95_ms")), num(v.get("mean_ms"))])
     return rows
 
 
+def _min_val_risk(p, feature="resnet18"):
+    g = [x for x in RES["recipe"]["results"][feature][p]["val_uncertainty_grid"] if x["n_act"] >= 50]
+    return min((x["error_among_act"] for x in g), default=None)
+
+
+# ---------------------------------------------------------------- model card
+
 def model_card_md() -> str:
     th = META["thresholds"]
-    d = S["D"]["classic"]
+    tv = META["threshold_validation"]
     lat = RES["cost"]["latency"]
-    classic_lat = lat.get("classic (pipeline completo)", {}).get("p50_ms")
+    lc = next((v.get("p50_ms") for k, v in lat.items() if k.startswith("classic")), None)
+    ds_, dv = RS["D_strict"]["recipe_classic"], RS["D"]["recipe_classic"]
     lines = [
         f"# Model card — {META['version']}",
         "",
@@ -91,65 +139,72 @@ def model_card_md() -> str:
         "",
         "## Uso previsto",
         "Identificar el objeto (SKU) de una imagen de estación, estimar su ángulo de rotación en el plano [0, 360) con "
-        "una medida de incertidumbre en grados, y devolver las vistas de referencia más parecidas como evidencia. La "
+        "un score de incertidumbre en grados, y devolver las vistas de referencia más parecidas como evidencia. La "
         "salida incluye una decisión **ACT / REVIEW / REJECT**: el robot solo recibe un comando `PICK` con ángulo cuando "
-        "la decisión es ACT; en cualquier otro caso recibe `HOLD` y el caso va a cola humana.",
+        "la decisión es ACT; en cualquier otro caso recibe `HOLD` y el caso va a cola humana. ACT no garantiza acierto: "
+        "el riesgo residual medido se reporta abajo.",
         "",
-        "## Modelo",
-        f"- Familia: {META['model_family']} (ML clásico; sin redes profundas en producción).",
-        f"- Clasificador: `{META['classifier']['name']}` {json.dumps(META['classifier']['params'])}, elegido por exactitud "
-        "media de **validación** en los 4 protocolos (nunca con test).",
-        "- Ángulo: recuperación condicionada al objeto (vecino más cercano + media circular ponderada de 2 vecinos); "
-        "incertidumbre = separación angular equivalente a la distancia al vecino más cercano según la curva "
-        "distancia-vs-ángulo del propio objeto.",
+        "## Modelo (receta congelada)",
+        f"- Receta `{RECIPE['name']}` (`src/vision/recipe.py`): {RECIPE['features']} → `{RECIPE['clf']}` "
+        f"{json.dumps(RECIPE['params'])}. Clasificador elegido en la exploración por exactitud media de **validación**.",
+        f"- Ángulo: recuperación condicionada al objeto; k de interpolación elegido en validación (artefacto: k = {META['k_angle_refine']}).",
+        "- Score de incertidumbre angular: separación angular equivalente a la distancia al vecino más cercano según la "
+        "curva distancia-vs-ángulo del objeto. Es un **score heurístico en grados, no una cota del error**; su umbral se "
+        "elige para que P(clase incorrecta o |error| > 10° | ACT) ≤ 2 % en validación.",
         "- Novedad: distancia al vecino más cercano en el espacio PCA.",
-        f"- Umbrales vigentes: confianza mínima {th['min_class_confidence']}, incertidumbre angular máxima "
-        f"{th['max_angle_uncertainty_deg']}°, distancia de desconocido {th['unknown_distance']:.2f} "
-        "(elegidos en validación con 10 objetos pseudo-desconocidos; error objetivo entre ACT ≤ 2 %). Ajustables en caliente vía "
-        "`PUT /v1/admin/thresholds`.",
-        f"- Clases marcadas como rotacionalmente simétricas (→ REVIEW): {', '.join(META.get('symmetric_classes', [])) or 'ninguna'}.",
-        f"- Tamaño del artefacto: {META.get('artifact_size_mb')} MB; latencia p50 ≈ {num(classic_lat, 1)} ms/imagen en CPU.",
+        f"- Umbrales del artefacto: confianza ≥ {th['min_class_confidence']}, score de incertidumbre ≤ "
+        f"{th['max_angle_uncertainty_deg']}°, distancia de desconocido ≤ {th['unknown_distance']:.2f}; elegidos en validación "
+        f"(90 conocidos paso 10° + 10 pseudo-desconocidos): {tv['val_n_act']} ACT, error {pct(tv['val_error_among_act'], 2)} "
+        f"(IC95 {ci(tv['val_error_wilson95'])}). Esa validación comparte imágenes con el test del protocolo A, por lo que **no** "
+        "es una estimación independiente. Ajustables en caliente vía `PUT /v1/admin/thresholds` (validados: finitos y en rango).",
+        f"- Clases marcadas con ambigüedad rotacional (→ REVIEW): {', '.join(META.get('symmetric_classes', [])) or 'ninguna'}.",
+        f"- Artefacto: {META.get('artifact_size_mb')} MB, SHA-256 `{META.get('model_sha256', '')[:16]}…`, commit "
+        f"`{META.get('git', {}).get('commit', '')[:10]}` (árbol con cambios sin commit: {META.get('git', {}).get('dirty')}); "
+        f"latencia p50 ≈ {num(lc, 1)} ms/imagen en CPU.",
         "",
         "## Datos",
         f"- COIL-100 (Columbia): 100 objetos × 72 vistas (paso 5°), 128×128 RGB, fondo oscuro y luz controlada. "
         f"Hash de versión de datos: `{META['data_version_hash'][:16]}…`. Semilla 42.",
-        "- El modelo productivo se entrena con las 7.200 vistas; las métricas provienen de los protocolos A–D (abajo).",
+        "- El artefacto usa las 7.200 vistas, así que **no tiene test propio**: sus métricas esperadas son las de la "
+        "receta, evaluada en cada protocolo con test independiente (tabla siguiente).",
         "",
-        "## Métricas (test, una sola evaluación por protocolo)",
+        "## Métricas de la receta (test independiente por protocolo, una evaluación)",
         "",
-        "| Protocolo | Exactitud | MAE ángulo | ≤10° | Éxito e2e | % ACT | Error entre ACT |",
-        "|---|---|---|---|---|---|---|",
+        "| Protocolo | Exactitud | MAE ángulo | ≤10° | Éxito e2e | % ACT | n ACT | Error entre ACT (IC95) |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for p in P:
-        c = S[p]["classic"]
-        lines.append(f"| {PNAME[p]} | {pct(c['class_accuracy'], 2)} | {c['angle_mae_deg']:.2f}° | {pct(c['angle_within_10'])} | "
-                     f"{pct(c['end_to_end_success'])} | {pct(c['coverage_act'])} | {pct(c['error_among_act'], 2)} |")
+        c = RS[p]["recipe_classic"]
+        lines.append(f"| {PNAME[p]} | {pct(c['class_accuracy'], 2)} | {deg(c['angle_mae_deg'])} | {pct(c['angle_within_10'])} | "
+                     f"{pct(c['end_to_end_success'])} | {pct(c['coverage_act'])} | {c['n_act']} | "
+                     f"{pct(c['error_among_act'], 2)} {ci(c['error_among_act_wilson95'])} |")
     lines += [
         "",
-        f"Desconocidos (D): AUROC distancia {num(d.get('auroc_nn_distance'), 3)}, confianza {num(d.get('auroc_neg_confidence'), 3)}, "
-        f"combinado {num(d.get('auroc_combined_rank'), 3)}; desconocidos rechazados {pct(d.get('unknown_rejected'))}, "
-        f"desconocidos que llegan a ACT {pct(d.get('unknown_false_accept_act'), 2)}, conocidos rechazados {pct(d.get('known_false_reject'), 2)}.",
+        f"Desconocidos — D estricto (90 conocidos con todas sus vistas; test = 720 vistas de 10 desconocidos): rechazados "
+        f"{pct(ds_.get('unknown_rejected'))} (IC95 {ci(ds_.get('unknown_rejected_wilson95'))}), llegan a ACT "
+        f"{pct(ds_.get('unknown_reaches_act'), 2)} (IC95 {ci(ds_.get('unknown_reaches_act_wilson95'))}). D variante (mixto): "
+        f"AUROC combinado {num(dv.get('auroc_combined_rank'), 3)}, conocidos rechazados {pct(dv.get('known_false_reject'), 2)}.",
         "",
         "*Éxito e2e* = clase correcta y error angular circular ≤ 10° (tolerancia de agarre). *Error entre ACT* = fracción "
-        "de acciones del robot que serían empaque equivocado o agarre fallido.",
+        "de acciones del robot que serían empaque equivocado, objeto desconocido aceptado o agarre fallido. N/A = la receta "
+        "no autorizó ninguna acción (automatización desactivada por falta de evidencia en validación).",
         "",
         "## Limitaciones conocidas",
         "- Dataset de laboratorio: fondo oscuro uniforme, iluminación fija, cámara fija, un solo eje de rotación, sin "
         "oclusión, sin desenfoque por movimiento, sin variación de escala. El desempeño en planta **no** está demostrado.",
         "- Objetos rotacionalmente simétricos o con vistas opuestas parecidas: el ángulo es intrínsecamente ambiguo; el "
         "sistema los envía a REVIEW.",
-        "- Ángulos nunca vistos (protocolo B, arco ciego de 60°): la recuperación no puede extrapolar; casi todo va a "
-        "REVIEW y la automatización se desactiva si la validación no alcanza el objetivo de error.",
-        "- Pocas vistas por SKU (protocolo C, 12 vistas): la clase es fiable pero el ángulo no alcanza la confiabilidad "
-        "exigida para ACT.",
-        "- La novedad se mide por distancia en el espacio de características: un objeto desconocido muy parecido a uno "
-        "conocido (misma familia de empaque) puede aceptarse como conocido.",
+        "- Ángulos nunca vistos (protocolo B, arco ciego de 60°) y pocas vistas por SKU (protocolo C, 12 vistas): la "
+        "receta desactiva la automatización (todo a REVIEW).",
+        "- Desconocidos casi duplicados de un conocido (misma familia de empaque, p. ej. obj61 ≈ obj92) pueden aceptarse "
+        "como el conocido y llegar a ACT.",
+        "- El score de incertidumbre angular no es una probabilidad ni una cota; solo su umbral está validado empíricamente.",
         "",
         "## Cuándo NO usarlo",
         "- Con cámaras, fondos o iluminación distintos sin re-captura de referencias y recalibración de umbrales.",
         "- Para rotaciones fuera del plano (vuelcos), objetos parcialmente ocultos o varios objetos en el cuadro.",
-        "- Como única barrera de seguridad: la decisión ACT reduce pero no elimina el error; el robot debe mantener sus "
-        "propias verificaciones (peso, código de barras, sensores de agarre).",
+        "- Como única barrera de seguridad: el robot debe mantener sus propias verificaciones (peso, código de barras, "
+        "sensores de agarre).",
         "- Para SKUs nuevos sin pasar por staging (`POST /v1/skus/stage`: ≥ 12 vistas cubriendo ≥ 300°, métricas "
         "leave-one-out) y promoción explícita.",
         "",
@@ -157,7 +212,7 @@ def model_card_md() -> str:
         "Piloto en sombra (el robot no actúa; 100 % revisión humana) para recalibrar umbrales con datos reales; "
         "aumentación (brillo, blur, ruido, escala) y captura de referencias por estación; monitoreo de la tasa "
         "ACT/REVIEW/REJECT, de la distancia de novedad y de las razones de REVIEW; re-entrenamiento versionado con "
-        "hash de datos y registro en MLflow.",
+        "hash de datos, SHA del artefacto y registro en MLflow.",
         "",
     ]
     return "\n".join(lines)
@@ -202,40 +257,45 @@ def build_pdf(out: Path):
         st.append(Spacer(1, 6))
 
     th = META["thresholds"]
-    d = S["D"]["classic"]
+    A, Ds, Dv = RS["A"]["recipe_classic"], RS["D_strict"]["recipe_classic"], RS["D"]["recipe_classic"]
     st.append(Paragraph("Reto 2 — Visión por computador en COIL-100", h1))
     para(f"Identificación de objeto, estimación de ángulo con incertidumbre y recuperación de vistas similares. "
-         f"Modelo productivo <b>{META['version']}</b> · hash de datos <font face='Courier'>{META['data_version_hash'][:16]}…</font> · "
-         f"generado {date.today().isoformat()}.", small)
+         f"Artefacto <b>{META['version']}</b> · receta <b>{RECIPE['name']}</b> · hash de datos "
+         f"<font face='Courier'>{META['data_version_hash'][:16]}…</font> · SHA modelo "
+         f"<font face='Courier'>{META.get('model_sha256', '')[:16]}…</font> · generado {date.today().isoformat()}.", small)
 
     st.append(Paragraph("1. Resumen ejecutivo", h2))
-    para(f"El modelo productivo es <b>clásico</b>: histogramas HSV + HOG + LBP + momentos de Hu → estandarización → PCA(150) → "
-         f"<b>{META['classifier']['name']}</b> {json.dumps(META['classifier']['params'])}, elegido por exactitud media de validación "
-         f"en los cuatro protocolos. El ángulo se estima por recuperación condicionada al objeto, con una incertidumbre expresada "
-         f"en grados, y una regla de decisión ACT / REVIEW / REJECT garantiza que el robot solo reciba ángulos confiables. "
-         f"La tolerancia de agarre de ±10° se traduce en la métrica de negocio <b>éxito extremo a extremo</b> (clase correcta y "
-         f"error circular ≤ 10°), reportada junto a la <b>fracción automatizada</b> y el <b>error entre las decisiones ACT</b>.")
-    table(headline_rows(), [3.4 * cm, 1.7 * cm, 1.8 * cm, 1.4 * cm, 1.7 * cm, 1.4 * cm, 1.8 * cm, 1.8 * cm])
-    para(f"Lectura: en el régimen operativo (A: referencias densas; D: con objetos desconocidos mezclados) el sistema "
-         f"automatiza {pct(S['A']['classic']['coverage_act'])} / {pct(S['D']['classic']['coverage_act'])} de los casos con error entre "
-         f"ACT de {pct(S['A']['classic']['error_among_act'], 2)} / {pct(S['D']['classic']['error_among_act'], 2)}. En B (arco ciego) y C (12 vistas) "
-         f"la apariencia no basta para un ángulo confiable y el sistema lo detecta: la mayoría de casos va a REVIEW en lugar de "
-         f"generar agarres fallidos. Los desconocidos se separan con AUROC {num(d.get('auroc_combined_rank'), 3)}; solo "
-         f"{pct(d.get('unknown_false_accept_act'), 2)} de las vistas de objetos desconocidos llega a ACT.")
+    para(f"La solución productiva es una <b>receta clásica congelada</b>: histogramas HSV + HOG + LBP + momentos de Hu → "
+         f"estandarización → PCA(150) → <b>regresión logística C=1</b>; ángulo por recuperación condicionada al objeto con un "
+         f"score de incertidumbre en grados; y una regla ACT / REVIEW / REJECT cuyo objetivo es que el robot solo actúe cuando "
+         f"el riesgo medido en validación sea ≤ 2 % (con ≥ 50 casos de evidencia). La tolerancia de ±10° se traduce en "
+         f"<b>éxito extremo a extremo</b> (clase correcta y error circular ≤ 10°) y en el par de negocio <b>fracción automatizada</b> / "
+         f"<b>error entre ACT</b>. Todas las cifras siguientes son de esa receta, ajustada solo con el train de cada protocolo y "
+         f"evaluada <b>una vez</b> en su test.")
+    table(headline_rows(), [3.6 * cm, 1.6 * cm, 1.6 * cm, 1.2 * cm, 1.5 * cm, 1.3 * cm, 1.1 * cm, 1.5 * cm, 2.6 * cm], font=7)
+    para(f"Lectura: con referencias densas (A) la receta automatiza {pct(A['coverage_act'])} con error entre ACT "
+         f"{pct(A['error_among_act'], 2)} (IC95 {ci(A['error_among_act_wilson95'])}). En B (arco ciego) y C (12 vistas) la validación "
+         f"no aporta evidencia suficiente y la receta desactiva la automatización: todo va a REVIEW. En D estricto se rechaza "
+         f"{pct(Ds.get('unknown_rejected'))} de las vistas de objetos desconocidos y {pct(Ds.get('unknown_reaches_act'), 2)} llega a "
+         f"ACT (casi duplicados de un conocido); en la variante mixta, AUROC {num(Dv.get('auroc_combined_rank'), 3)}. "
+         f"El artefacto entregado es la misma receta ajustada con las 7.200 vistas: no tiene test propio y sus métricas esperadas "
+         f"son las de esta tabla.")
 
     st.append(Paragraph("2. Análisis del dataset", h2))
     para("100 objetos × 72 vistas (paso exacto de 5°), 128×128 RGB, fondo oscuro casi uniforme (mediana del borde ≈ 25/255) "
          "e iluminación controlada. Propiedades que condicionan el diseño: (i) la clase es separable en laboratorio, el riesgo "
          "está en el ángulo; (ii) objetos <b>rotacionalmente simétricos</b> (latas, tazas, donas, frascos) cuyo ángulo es "
-         "intrínsecamente ambiguo; (iii) objetos con vistas a 180° parecidas; (iv) familias de empaques casi duplicadas.")
+         "intrínsecamente ambiguo; (iii) en ~3/4 de los objetos la vista a 180° se parece más que la de 90°; (iv) familias de "
+         "empaques casi duplicadas.")
     fig("01_sample_grid", 11 * cm, "Figura 1. Vistas de ejemplo (filas: objetos; columnas: ángulo).")
     fig("02_symmetry", 17 * cm, "Figura 2. Izquierda: distancia media entre vistas vs. separación angular (plana = simétrico). "
         "Centro: índice de ambigüedad por objeto. Derecha: razón d(180°)/d(90°) (<1 = vistas opuestas parecidas).")
     sym = RES["symmetry"]["profile_score"]
     top = sorted(sym.items(), key=lambda kv: -kv[1])[:8]
     para("Objetos más ambiguos según el índice de perfil: " + ", ".join(f"{k} ({v:.2f})" for k, v in top) +
-         ". Tratamiento: bandera <i>rotational_ambiguity</i> por instancia (vista de referencia lejana casi tan parecida como la mejor) "
-         f"y por clase en el modelo productivo (clases: {', '.join(META.get('symmetric_classes', []))}) → REVIEW.")
+         ". Tratamiento: bandera <i>rotational_ambiguity</i> por instancia (vista de referencia lejana casi tan parecida como la mejor), "
+         "por clase con el índice LOO y con las clases cuyo ángulo falla en > 25 % de su validación "
+         f"(artefacto: {', '.join(META.get('symmetric_classes', []))}) → REVIEW.")
     pairs = RES["confusable_pairs"][:6]
     table([["Objeto A", "Objeto B", "Dist. mínima inter-objeto", "Dist. típica vista adyacente"]] +
           [[r["a"], r["b"], num(r["min_inter_distance"]), num(r["mean_intra_nn_distance"])] for r in pairs],
@@ -250,93 +310,101 @@ def build_pdf(out: Path):
            ["A Interpolación", "0,10,…,350 (36)", "5,15,…,355 (36)", "fit paso 20°, val resto"],
            ["B Sector ciego", "60", "arco contiguo 60° (12); inicio aleatorio, semilla 42", "otro arco de 60° dentro de train"],
            ["C Escasez", "1 cada 30° (12)", "las otras 60", "fit paso 60°, val resto"],
-           ["D Desconocido", "90 objetos, paso 10°", "vistas impares de los 90 + todas las de 10 desconocidos",
-            "10 pseudo-desconocidos (semilla 43)"]],
-          [3 * cm, 3.2 * cm, 5.3 * cm, 5.5 * cm])
-    para(f"Objetos desconocidos en D: {', '.join(RES['protocols']['D']['classic']['unknown_objects'])}. "
-         "Se comparan cuatro clasificadores (kNN, regresión logística, SVM RBF con Platt, Random Forest) con una rejilla pequeña; el "
-         "mejor hiperparámetro por clasificador y el mejor clasificador se eligen en validación y luego se evalúa <b>una sola vez</b> en test. "
-         "Los umbrales (confianza mínima, incertidumbre angular máxima, distancia de desconocido) también se fijan en validación: "
-         "máxima cobertura con error entre ACT ≤ 2 %; distancia de desconocido por Youden con pseudo-desconocidos; si ningún umbral "
-         "cumple el objetivo, la automatización se desactiva. En C la validación no tiene vistas a ≤15° de las de ajuste, por lo que el "
-         "umbral angular usa el prior 5° (mitad de la tolerancia). Todo queda en MLflow (sqlite:///mlflow.db, experimento vision-coil100) "
-         "con parámetros, métricas por protocolo, hash de datos y artefactos.")
+           ["D estricto", "90 objetos, 72 vistas", "solo las 720 vistas de 10 desconocidos", "10 pseudo-desconocidos (semilla 43)"],
+           ["D variante", "90 objetos, paso 10°", "vistas impares de los 90 + 720 desconocidas", "10 pseudo-desconocidos (semilla 43)"]],
+          [2.8 * cm, 3.2 * cm, 5.5 * cm, 5.5 * cm])
+    para(f"Desconocidos en D: {', '.join(RES['protocols']['D']['classic']['unknown_objects'])}. Dos niveles: (1) <b>exploración</b> — "
+         "cuatro clasificadores (kNN, logística, SVM RBF con Platt, Random Forest) con rejilla pequeña, comparados en validación; su "
+         "test se reporta a título informativo y no se usa para elegir; (2) <b>receta congelada</b> — el ganador de la exploración más "
+         "el procedimiento de umbrales, definido una vez y evaluado una vez por protocolo. El k de interpolación angular se elige en "
+         "validación. Umbrales: máxima cobertura con error entre ACT ≤ 2 % y ≥ 50 ACT en validación; distancia de desconocido por "
+         "Youden con pseudo-desconocidos; si no hay evidencia suficiente, automatización desactivada. Riesgos con IC de Wilson 95 %. "
+         "Todo se registra en MLflow (sqlite:///mlflow.db, experimento vision-coil100): parámetros, métricas por protocolo, hash de "
+         "datos, y para el artefacto model.joblib, su SHA-256, commit git y versiones de librerías.")
 
-    st.append(Paragraph("4. Resultados por protocolo", h2))
-    para("Comparación obligatoria: modelo clásico seleccionado vs. línea base (1-NN en píxeles crudos 32×32, sin rechazo) vs. "
-         "referencia moderna (ResNet18 ImageNet congelada + mismo pipeline).")
-    table(comparison_rows(), [1.2 * cm, 3.8 * cm, 2 * cm, 2.2 * cm, 2 * cm, 1.8 * cm, 2 * cm])
-    fig("03_per_protocol", 17.5 * cm, "Figura 3. Métricas por protocolo y modelo.")
-    para("Todos los clasificadores clásicos (test; * = elegido en validación para ese protocolo):", small)
-    table(all_classifier_rows("classic"), [1 * cm, 2.8 * cm, 1.8 * cm, 1.4 * cm, 1.8 * cm, 1.5 * cm, 1.7 * cm, 1.3 * cm, 1.3 * cm], font=7)
-    para("Referencia moderna ResNet18 (test):", small)
-    table(all_classifier_rows("resnet18"), [1 * cm, 2.8 * cm, 1.8 * cm, 1.4 * cm, 1.8 * cm, 1.5 * cm, 1.7 * cm, 1.3 * cm, 1.3 * cm], font=7)
+    st.append(Paragraph("4. Exploración: comparación de clasificadores", h2))
+    para("Exactitud de clase en <b>validación</b> (la única usada para elegir):", small)
+    table(val_rows(), [5 * cm, 2.2 * cm, 2.2 * cm, 2.2 * cm, 2.2 * cm], font=7)
+    para("La regresión logística tiene la mejor exactitud media de validación (≈3 puntos sobre SVM RBF y ≈5 sobre kNN y Random "
+         "Forest) y es la mejor calibrada (ECE bajo), por lo que se congela como receta. Test de cada clasificador en la exploración "
+         "(* = elegido en validación para ese protocolo; informativo):", small)
+    table(exploration_rows("classic"), [1 * cm, 3 * cm, 2 * cm, 1.6 * cm, 2 * cm, 1.6 * cm, 1.6 * cm], font=7)
 
-    st.append(Paragraph("5. Ángulo", h2))
-    para("Métrica: error circular min(|a−b|, 360−|a−b|). Se reporta MAE, mediana y fracción ≤ 10° sobre las predicciones con clase "
-         "correcta. Alternativas comparadas: ángulo del vecino más cercano (sin interpolar) vs. interpolación con 2 y 3 vecinos.")
-    alt = RES["angle_alternatives"]
-    table([["Protocolo", "Vecinos", "MAE (°)", "Mediana (°)", "≤10°"]] +
-          [[a["protocolo"], a["vecinos interpolados"], num(a["MAE°"]), num(a["mediana°"]), pct(a["≤10°"])] for a in alt],
-          [2.5 * cm, 2 * cm, 2.5 * cm, 2.5 * cm, 2.5 * cm])
-    fig("04_angle_error_hist", 17 * cm, "Figura 4. Histograma del error angular circular (escala log); línea roja = ±10°.")
+    st.append(Paragraph("5. Receta congelada: resultados, línea base y referencia moderna", h2))
+    para("Umbrales y k de la receta clásica en cada protocolo (todos elegidos en validación dentro del train del protocolo):", small)
+    table(thresholds_rows(), [3.4 * cm, 1.2 * cm, 1.6 * cm, 1.9 * cm, 2.2 * cm, 1.7 * cm, 2 * cm, 2 * cm], font=7)
+    para("Comparación obligatoria con la misma contabilidad en todos los modelos: la línea base (1-NN en píxeles crudos 32×32) "
+         "siempre actúa, por lo que en D sus aciertos sobre desconocidos son imposibles y cuentan como error entre ACT.")
+    table(comparison_rows(), [1.3 * cm, 4.4 * cm, 1.8 * cm, 1.8 * cm, 1.7 * cm, 1.4 * cm, 1.6 * cm, 3 * cm], font=7)
+    fig("03_per_protocol", 17.5 * cm, "Figura 3. Receta congelada por protocolo (barra ausente = N/A, sin ACT).")
 
-    st.append(Paragraph("6. Rechazo y calibración: ¿es la confianza una base válida para decidir?", h2))
-    fig("05_reliability_risk", 17.5 * cm, "Figura 5. Diagrama de confiabilidad (clase), curvas riesgo–cobertura y P(|error| ≤ 10°) vs. incertidumbre angular.")
-    fig("06_unknown_roc", 7.5 * cm, "Figura 6. Protocolo D: ROC conocido vs. desconocido.")
-    para(f"La regresión logística está bien calibrada (ECE bajo en los cuatro protocolos), mientras que SVM (Platt) y Random Forest "
-         f"tienen ECE alto: sus probabilidades no deben usarse crudas para decidir. Las curvas riesgo–cobertura bajan monótonamente al "
-         f"exigir más confianza / menos incertidumbre, por lo que existe un umbral operable. En D: AUROC distancia "
-         f"{num(d.get('auroc_nn_distance'), 3)}, confianza {num(d.get('auroc_neg_confidence'), 3)}, combinado {num(d.get('auroc_combined_rank'), 3)}; "
-         f"con el umbral de validación se rechaza {pct(d.get('unknown_rejected'))} de las vistas desconocidas (TPR), "
-         f"{pct(d.get('unknown_not_act'))} no llega a ACT, y solo {pct(d.get('known_false_reject'), 2)} de las vistas conocidas se rechaza.")
+    st.append(Paragraph("6. Ángulo", h2))
+    para("Métrica: error circular min(|a−b|, 360−|a−b|), con MAE, mediana y fracción ≤ 10° sobre las predicciones con clase "
+         "correcta. Alternativas: copiar el ángulo del vecino más cercano (k=1) o interpolar con 2–3 vecinos. Según la validación, "
+         "interpolar ayuda cuando el query cae entre referencias cercanas (A, D) pero no con brechas grandes (B, C), donde k=1 "
+         "queda igual o mejor; por eso k se elige por protocolo en validación.")
+    rows = [["Protocolo", "k", "val ≤10°", "val MAE"]]
+    for p in P:
+        for r in RR[p]["k_table_val"]:
+            rows.append([p, r["k"], pct(r["val_within_10"]), num(r["val_mae_deg"])])
+    table(rows, [3 * cm, 1.5 * cm, 2.5 * cm, 2.5 * cm], font=7)
+    fig("04_angle_error_hist", 17 * cm, "Figura 4. Histograma del error angular circular, receta clásica (escala log); rojo = ±10°.")
 
-    st.append(Paragraph("7. Criterio de aceptación (±10° → métrica de negocio)", h2))
-    para("Éxito extremo a extremo = clase correcta ∧ error circular ≤ 10°. Como el robot solo actúa en ACT, la métrica de negocio es el "
-         "par (fracción automatizada, error entre ACT). El umbral de incertidumbre angular está en grados y se elige para que el error "
-         "entre ACT ≤ 2 % en validación.")
-    acc = RES["acceptance_table"]
-    table([["Prot.", "Modelo", "Éxito e2e", "% ACT", "Error|ACT", "Umbral incert.", "Automatización"]] +
-          [[a["protocolo"], a["modelo"], pct(a["éxito e2e (sin rechazo)"]), pct(a["% ACT"]), pct(a["error|ACT"], 2),
-            (f"{a['umbral incert.°']}°" if a.get("umbral incert.°") not in (None, float("nan")) and a.get("umbral incert.°") == a.get("umbral incert.°") else "—"),
-            {True: "sí", False: "no"}.get(a.get("automatización habilitada"), "—")] for a in acc],
-          [1.2 * cm, 3.6 * cm, 2 * cm, 1.8 * cm, 2 * cm, 2.4 * cm, 2.4 * cm])
-    para(f"Umbrales del modelo productivo (validación con 10 pseudo-desconocidos): confianza ≥ {th['min_class_confidence']}, "
-         f"incertidumbre ≤ {th['max_angle_uncertainty_deg']}°, distancia de desconocido ≤ {th['unknown_distance']:.2f}. "
-         "Cuando la decisión no es ACT el robot recibe {\"action\": \"HOLD\", \"reason\": código} y nunca un ángulo dudoso.")
+    st.append(Paragraph("7. Rechazo y calibración: ¿es la confianza una base válida para decidir?", h2))
+    fig("05_reliability_risk", 17.5 * cm, "Figura 5. Confiabilidad (clase), riesgo–cobertura y P(|error| ≤ 10°) vs. score de incertidumbre.")
+    fig("06_unknown_roc", 7.5 * cm, "Figura 6. D variante: ROC conocido vs. desconocido.")
+    para(f"La regresión logística está bien calibrada (ECE {num(A.get('ece'), 3)} en A); SVM (Platt) y Random Forest tienen ECE alto "
+         f"en la exploración y sus probabilidades no deben usarse crudas. En las curvas riesgo–cobertura, priorizar los casos de mayor "
+         f"confianza o menor incertidumbre deja el riesgo de los primeros tramos muy por debajo del global; las curvas <b>no son "
+         f"estrictamente monótonas</b> y en B no existe un tramo con riesgo aceptable. Desconocidos: D variante AUROC distancia "
+         f"{num(Dv.get('auroc_nn_distance'), 3)}, confianza {num(Dv.get('auroc_neg_confidence'), 3)}, combinado "
+         f"{num(Dv.get('auroc_combined_rank'), 3)}; conocidos rechazados {pct(Dv.get('known_false_reject'), 2)}. D estricto (sin conocidos "
+         f"en test, AUROC no aplica): desconocidos rechazados {pct(Ds.get('unknown_rejected'))} (IC95 {ci(Ds.get('unknown_rejected_wilson95'))}), "
+         f"desconocidos que llegan a ACT {pct(Ds.get('unknown_reaches_act'), 2)} (IC95 {ci(Ds.get('unknown_reaches_act_wilson95'))}).")
 
-    st.append(Paragraph("8. Análisis de errores", h2))
+    st.append(Paragraph("8. Criterio de aceptación: ±10° y el umbral de incertidumbre", h2))
+    para("Éxito extremo a extremo = clase correcta ∧ error circular ≤ 10°. Como el robot solo actúa en ACT, la métrica de negocio es "
+         "(fracción automatizada, P(clase incorrecta o desconocido o |error| > 10° | ACT)). El score de incertidumbre está en grados pero "
+         "es <b>heurístico</b>: un corte de 30° no significa error ≤ 30°. Su umbral se elige directamente por el riesgo de negocio: el mayor "
+         "umbral cuyo riesgo en validación sea ≤ 2 % con ≥ 50 ACT. Los cortes altos son seguros porque la ambigüedad rotacional y la "
+         "confianza ya filtran los casos peligrosos; la figura muestra el riesgo con IC de Wilson en validación (selección) y en el test "
+         "de la receta (solo descriptivo).")
+    fig("09_uncertainty_sweep", 17 * cm, "Figura 7. Riesgo entre ACT vs. umbral del score de incertidumbre (A y D variante).")
+    tv = META["threshold_validation"]
+    para(f"Artefacto productivo: confianza ≥ {th['min_class_confidence']}, score ≤ {th['max_angle_uncertainty_deg']}°, distancia ≤ "
+         f"{th['unknown_distance']:.2f}; en su validación {tv['val_n_act']} ACT con error {pct(tv['val_error_among_act'], 2)} "
+         f"(IC95 {ci(tv['val_error_wilson95'])}). Esa validación no es independiente (comparte imágenes con el test de A); la evidencia "
+         "independiente es la de la tabla 1. Cuando la decisión no es ACT el robot recibe {\"action\": \"HOLD\", \"reason\": código}.")
+
+    st.append(Paragraph("9. Análisis de errores (receta clásica)", h2))
     for p, rows in RES["error_analysis"].items():
         table([[f"Prot. {p}: objeto", "Fallos e2e", "Vistas test", "Errores de clase", "Confundido con"]] +
               [[r["object"], r["failures"], r["n"], r["class_errors"], r["confused_with"] or "—"] for r in rows[:6]],
-              [3.2 * cm, 2.2 * cm, 2.2 * cm, 2.8 * cm, 3 * cm])
-    fig("07_failures_C", 16 * cm, "Figura 7. Ejemplos de fallos en C (arriba: consulta; abajo: referencia de la predicción).")
-    fig("07_failures_B", 16 * cm, "Figura 8. Ejemplos de fallos en B.")
+              [3.2 * cm, 2.2 * cm, 2.2 * cm, 2.8 * cm, 3 * cm], font=7)
+    fig("07_failures_C", 16 * cm, "Figura 8. Ejemplos de fallos en C (arriba: consulta; abajo: referencia de la predicción).")
+    fig("07_failures_B", 16 * cm, "Figura 9. Ejemplos de fallos en B.")
     para("Los fallos angulares se concentran en objetos simétricos o con vistas opuestas parecidas (errores de ~180° o arbitrarios) y en "
-         "el arco no visto (B); los errores de clase, entre objetos de la misma familia visual. Ambos tipos de caso son los que la regla de "
-         "decisión envía a REVIEW.")
+         "el arco no visto (B); los errores de clase, entre objetos de la misma familia visual. La mayoría de estos casos se envía a REVIEW.")
 
-    st.append(Paragraph("9. Costo: latencia y tamaño", h2))
-    table(lat_rows(), [8 * cm, 3 * cm, 3 * cm])
+    st.append(Paragraph("10. Costo: latencia y tamaño", h2))
+    table(lat_rows(), [8 * cm, 2.5 * cm, 2.5 * cm, 2.5 * cm])
     para(f"Artefacto clásico: {num(RES['cost']['classic_artifact_mb'], 1)} MB. Pesos ResNet18 fp32: {RES['cost']['resnet18_weights_mb']} MB "
-         "(más la dependencia de PyTorch). *La línea base se mide en lote (búsqueda 1-NN sin extracción ni decisión).")
-    fig("08_latency", 12 * cm, "Figura 9. Latencia por imagen.")
-    lat = RES["cost"]["latency"]
-    lc = lat.get("classic (pipeline completo)", {}).get("p50_ms")
-    lr = lat.get("resnet18 CPU (solo embedding)", {}).get("p50_ms")
-    sa, sd = S["A"], S["D"]
-    para(f"¿Justifica la brecha el costo? La referencia moderna mejora la exactitud de clase en los protocolos con brecha "
-         f"(B: {pct(S['B']['resnet18']['class_accuracy'], 2)} vs {pct(S['B']['classic']['class_accuracy'], 2)}; C: "
-         f"{pct(S['C']['resnet18']['class_accuracy'], 2)} vs {pct(S['C']['classic']['class_accuracy'], 2)}) y el MAE angular, pero no resuelve "
-         f"el arco ciego ni habilita automatizar C. En el régimen operativo, el clásico automatiza más (A: {pct(sa['classic']['coverage_act'])} vs "
-         f"{pct(sa['resnet18']['coverage_act'])}; D: {pct(sd['classic']['coverage_act'])} vs {pct(sd['resnet18']['coverage_act'])}) con error entre ACT "
-         f"de {pct(sa['classic']['error_among_act'], 2)} / {pct(sd['classic']['error_among_act'], 2)} (ResNet: {pct(sa['resnet18']['error_among_act'], 2)} / "
-         f"{pct(sd['resnet18']['error_among_act'], 2)}). Solo el embedding ResNet18 cuesta {num(lr, 1)} ms p50 en CPU frente a {num(lc, 1)} ms del "
-         "pipeline clásico completo, y añade ~45 MB de pesos más la dependencia de PyTorch. Producción = clásico; ResNet18 queda como referencia y "
-         "candidata si el piloto en planta (fondos e iluminación reales) muestra una brecha mayor, en particular en desconocidos casi duplicados.")
+         "(más la dependencia de PyTorch). La línea base se mide como media por imagen de una búsqueda 1-NN en lote (sin percentiles).")
+    fig("08_latency", 12 * cm, "Figura 10. Latencia por imagen.")
+    rb, rc = RS["B"], RS["C"]
+    para(f"¿Justifica la brecha el costo? Con la misma receta, ResNet18 mejora la exactitud de clase en B ({pct(rb['recipe_resnet18']['class_accuracy'], 2)} "
+         f"vs {pct(rb['recipe_classic']['class_accuracy'], 2)}) y C ({pct(rc['recipe_resnet18']['class_accuracy'], 2)} vs "
+         f"{pct(rc['recipe_classic']['class_accuracy'], 2)}) y el MAE angular, pero tampoco habilita automatizar B ni C. En A: ACT "
+         f"{pct(RS['A']['recipe_resnet18']['coverage_act'])} con error {pct(RS['A']['recipe_resnet18']['error_among_act'], 2)} (ResNet18) vs "
+         f"{pct(A['coverage_act'])} con {pct(A['error_among_act'], 2)} (clásica): con la misma receta, ResNet18 no alcanza en su "
+         f"validación un riesgo ≤ 2 % con ≥ 50 ACT (mínimo con ≥ 50 ACT en A: {pct(_min_val_risk('A'), 2)}), así que su automatización "
+         "queda desactivada pese a su mayor exactitud bruta — su score de incertidumbre (misma definición, otro espacio) separa peor "
+         "los fallos angulares. Solo el embedding ResNet18 ya cuesta más en CPU que el pipeline "
+         "clásico completo y añade ~45 MB de pesos más PyTorch. Producción = receta clásica; ResNet18 queda como referencia y candidata si el "
+         "piloto en planta muestra una brecha mayor.")
 
     st.append(PageBreak())
-    st.append(Paragraph("10. Model card", h2))
+    st.append(Paragraph("11. Model card", h2))
     for line in model_card_md().splitlines()[3:]:
         if not line.strip():
             continue
@@ -346,8 +414,6 @@ def build_pdf(out: Path):
             continue  # la tabla de métricas ya está en la sección 1
         else:
             t = line.lstrip("- ").replace("**", "")
-            import re
-
             t = re.sub(r"`([^`]*)`", r"<font face='Courier'>\1</font>", t)
             t = re.sub(r"\*([^*]+)\*", r"<i>\1</i>", t)
             para(("• " if line.startswith("- ") else "") + t, small)

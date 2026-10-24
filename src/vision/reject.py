@@ -15,6 +15,20 @@ class DecisionThresholds:
     max_angle_uncertainty_deg: float = 10.0
     unknown_distance: float = 1e9
 
+    def __post_init__(self):
+        """Valida antes de usar: NaN/inf o fuera de rango abrirían la compuerta (p. ej. `100 > NaN` es False)."""
+        for k in ("min_class_confidence", "max_angle_uncertainty_deg", "unknown_distance"):
+            v = getattr(self, k)
+            if isinstance(v, bool) or not isinstance(v, (int, float, np.integer, np.floating)) or not np.isfinite(v):
+                raise ValueError(f"{k} debe ser un número finito")
+            setattr(self, k, float(v))
+        if not 0.0 <= self.min_class_confidence <= 1.0:
+            raise ValueError("min_class_confidence debe estar en [0, 1]")
+        if not (self.max_angle_uncertainty_deg == -1.0 or 0.0 <= self.max_angle_uncertainty_deg <= 180.0):
+            raise ValueError("max_angle_uncertainty_deg debe estar en [0, 180] (o -1 = automatización desactivada)")
+        if self.unknown_distance <= 0:
+            raise ValueError("unknown_distance debe ser > 0")
+
     def to_dict(self) -> dict:
         return asdict(self)
 
@@ -24,12 +38,13 @@ def decide(quality_ok: bool, nn_distance: float, confidence: float, angle_unc: f
     """Orden: calidad → desconocido (REJECT) → clase/ángulo dudosos (REVIEW) → ACT."""
     if not quality_ok:
         return "REJECT", ["image_quality"]
-    if nn_distance > th.unknown_distance:
+    # comparaciones escritas para que un NaN en las entradas NUNCA produzca ACT
+    if not nn_distance <= th.unknown_distance:
         return "REJECT", ["unknown_object"]
     reasons = []
-    if confidence < th.min_class_confidence:
+    if not confidence >= th.min_class_confidence:
         reasons.append("low_class_confidence")
-    if angle_unc > th.max_angle_uncertainty_deg:
+    if not angle_unc <= th.max_angle_uncertainty_deg:
         reasons.append("high_angle_uncertainty")
     if ambiguous:
         reasons.append("rotational_ambiguity")
@@ -39,9 +54,9 @@ def decide(quality_ok: bool, nn_distance: float, confidence: float, angle_unc: f
 def decide_batch(nn_distance, confidence, angle_unc, ambiguous, th: DecisionThresholds) -> np.ndarray:
     nn_distance, confidence, angle_unc, ambiguous = map(np.asarray, (nn_distance, confidence, angle_unc, ambiguous))
     dec = np.full(len(confidence), "ACT", dtype=object)
-    review = (confidence < th.min_class_confidence) | (angle_unc > th.max_angle_uncertainty_deg) | ambiguous
+    review = ~(confidence >= th.min_class_confidence) | ~(angle_unc <= th.max_angle_uncertainty_deg) | ambiguous
     dec[review] = "REVIEW"
-    dec[nn_distance > th.unknown_distance] = "REJECT"
+    dec[~(nn_distance <= th.unknown_distance)] = "REJECT"
     return dec
 
 
@@ -49,7 +64,7 @@ def select_thresholds(correct_class, angle_err, confidence, angle_unc, ambiguous
                       is_unknown=None, target_error: float = 0.02,
                       conf_grid=(0.0, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99),
                       unc_grid=(2.5, 5.0, 7.5, 10.0, 12.5, 15.0, 20.0, 30.0),
-                      fallback_angle_uncertainty: float = 5.0) -> tuple[DecisionThresholds, dict]:
+                      fallback_angle_uncertainty: float = 5.0, min_act: int = 50) -> tuple[DecisionThresholds, dict]:
     """Elige umbrales SOLO con datos de validación.
 
     unknown_distance: si hay pseudo-desconocidos en validación → maximiza Youden J; si no → percentil 99 de
@@ -57,8 +72,9 @@ def select_thresholds(correct_class, angle_err, confidence, angle_unc, ambiguous
     min_class_confidence: máxima cobertura con error de CLASE (incl. desconocidos aceptados) ≤ target_error/2.
     max_angle_uncertainty: con esa confianza fija, máxima cobertura con error extremo a extremo entre ACT
     (clase incorrecta o |Δθ|>10°) ≤ target_error; si ninguno lo cumple, el de menor error.
-    Si NINGÚN umbral cumple el objetivo en validación, se desactiva la automatización (umbral angular -1 →
-    todo REVIEW). Si la validación no es informativa para el ángulo (p. ej. protocolo C: las vistas de validación quedan a
+    La automatización solo se habilita si en validación hay ≥ min_act decisiones ACT y su error puntual es
+    ≤ target_error (se reporta además el intervalo de Wilson 95 %); si no, se desactiva (umbral angular -1 →
+    todo REVIEW) y el riesgo se reporta como N/A. Si la validación no es informativa para el ángulo (p. ej. protocolo C: las vistas de validación quedan a
     30° de las de ajuste, el test a ≤15°), se usa el prior 5° = mitad de la tolerancia de ±10°.
     """
     correct_class = np.asarray(correct_class, bool)
@@ -101,36 +117,48 @@ def select_thresholds(correct_class, angle_err, confidence, angle_unc, ambiguous
             e = 1 - correct_class[a].mean() if a.any() else 0.0
             if c > conf_th and a.mean() >= cov_best - 0.005 and e <= class_budget:
                 conf_th = c
-    # etapa 2: incertidumbre angular → error extremo a extremo entre ACT ≤ target
+    # etapa 2: incertidumbre angular → error extremo a extremo entre ACT ≤ target, con al menos min_act casos ACT
     table, best = [], None
     for u in (unc_grid if angle_informative else ()):
         th = DecisionThresholds(conf_th, u, unk_d)
         act = decide_batch(nn_distance, confidence, angle_unc, ambiguous, th) == "ACT"
-        cov = act.mean()
-        err = 1 - success[act].mean() if act.any() else 0.0
-        table.append({"max_angle_uncertainty_deg": u, "coverage": float(cov), "error_among_act": float(err)})
-        key = (err <= target_error, cov if err <= target_error else -err)
+        n_act, n_err = int(act.sum()), int((act & ~success).sum())
+        err = n_err / n_act if n_act else float("nan")
+        lo, hi = wilson_interval(n_err, n_act)
+        table.append({"max_angle_uncertainty_deg": u, "coverage": float(act.mean()), "n_act": n_act, "n_errors": n_err,
+                      "error_among_act": err, "wilson95_low": lo, "wilson95_high": hi})
+        ok = n_act >= min_act and err <= target_error
+        key = (ok, act.mean() if ok else -(err if n_act else 1.0))
         if best is None or key > best[0]:
             best = (key, u)
     unc_th = best[1] if best is not None else fallback_angle_uncertainty
-    if best is None:  # umbral angular por prior: se verifica igual su error en validación
-        th0 = DecisionThresholds(conf_th, unc_th, unk_d)
-        act0 = decide_batch(nn_distance, confidence, angle_unc, ambiguous, th0) == "ACT"
-        feasible = (not act0.any()) or (1 - success[act0].mean()) <= target_error
-    else:
-        feasible = bool(best[0][0])
-    if not feasible:
-        # ningún umbral cumple el objetivo en validación → se desactiva la automatización (todo a REVIEW):
-        # preferimos no actuar a actuar con un error conocido > objetivo.
-        unc_th = -1.0
     th = DecisionThresholds(conf_th, unc_th, unk_d)
     act = decide_batch(nn_distance, confidence, angle_unc, ambiguous, th) == "ACT"
-    cov = float(act.mean())
-    err = float(1 - success[act].mean()) if act.any() else 0.0
-    return th, {"val_coverage": cov, "val_error_among_act": err, "target_error": target_error,
-                "angle_threshold_source": "validation" if best is not None else "prior_tolerance_half",
-                "automation_enabled": bool(feasible),
-                "grid": table}
+    n_act, n_err = int(act.sum()), int((act & ~success).sum())
+    # factible solo con evidencia suficiente: ≥ min_act decisiones ACT en validación y error puntual ≤ objetivo
+    feasible = n_act >= min_act and (n_err / n_act) <= target_error
+    lo, hi = wilson_interval(n_err, n_act)
+    info = {"val_n_act": n_act, "val_n_errors": n_err, "val_coverage": float(act.mean()),
+            "val_error_among_act": (n_err / n_act) if n_act else None, "val_error_wilson95": [lo, hi],
+            "target_error": target_error, "min_act": min_act,
+            "angle_threshold_source": "validation" if best is not None else "prior_tolerance_half",
+            "automation_enabled": bool(feasible), "grid": table}
+    if not feasible:
+        # sin evidencia suficiente de riesgo ≤ objetivo → automatización desactivada (todo a REVIEW)
+        th = DecisionThresholds(conf_th, -1.0, unk_d)
+        info["val_coverage"] = 0.0
+    return th, info
+
+
+def wilson_interval(k: int, n: int, z: float = 1.96) -> tuple[float | None, float | None]:
+    """Intervalo de Wilson 95 % para una proporción k/n (None si n = 0)."""
+    if n == 0:
+        return None, None
+    p = k / n
+    den = 1 + z**2 / n
+    c = (p + z**2 / (2 * n)) / den
+    h = z * np.sqrt(p * (1 - p) / n + z**2 / (4 * n**2)) / den
+    return float(max(0.0, c - h)), float(min(1.0, c + h))
 
 
 # ---------------------------------------------------------------- métricas de confianza
