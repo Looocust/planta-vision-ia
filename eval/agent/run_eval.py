@@ -408,8 +408,14 @@ def main():
             defs = {c["id"]: c for c in load_cases(which)}
             for r in d["results"]:
                 r["coverage"] = coverage(defs[r["id"]])
-            d["summary"] = summarize(d["results"])
+            new = summarize(d["results"])
+            if d.get("summary") != new and "summary_as_run" not in d:
+                d["summary_as_run"] = d.get("summary")  # se conserva el resumen original de la corrida
+            d["summary"] = new
             d["meta"]["recomputed_from_saved_results"] = True
+            d["meta"]["recompute_note"] = ("summary recalculado con la definición vigente de cobertura (solo expectativas "
+                                           "no vacías); results por caso sin cambios; ver summary_as_run")
+            Path(path).write_text(json.dumps(d, ensure_ascii=False, indent=1))  # JSON y reporte quedan consistentes
             return d
         d = recompute(a.report_from, "main")
         h = recompute(a.holdout_from, "holdout") if a.holdout_from else None

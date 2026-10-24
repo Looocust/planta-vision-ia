@@ -24,6 +24,35 @@
   - Reloj **simulado** de planta, para datos y ventanas de turno.
   - Reloj **real** de seguridad, para la expiración de cargas, aprobaciones, tokens y memoria. Las lecturas respetan `uploads.expires_at`. `review.purge_expired()` borra archivos y filas vencidas; se ejecuta al arrancar y en `POST /v1/admin/purge`.
 
+## Contrato por tool
+
+- **Roles** según `configs/roles.yaml`.
+- **Errores comunes a todas las tools** (los aplica el guard o el ejecutor): `unknown_tool`, `forbidden`, `invalid_args`, `duplicate_call`, `not_executed`, `tool_timeout`, `internal_error`, `scope_violation` (en las que reciben `line_id`).
+- **Eventos de auditoría** (`audit_log.action`):
+  - toda ejecución: `tool_read` o `tool_write`, con `outcome` = ok/error/timeout;
+  - todo rechazo previo: `tool_blocked`.
+
+| Tool | Tipo | Roles permitidos | Errores propios | Efecto lateral | Clave de idempotencia | Eventos de auditoría |
+|---|---|---|---|---|---|---|
+| `inspect_images` | lectura | todos los roles | `vision_not_bound`, por imagen: `not_found_in_scope`, `vision_unavailable`, `vision_error` | log en `inspections` (sin efecto en línea ni robot) | — (lectura) | `tool_read` |
+| `enqueue_for_review` | escritura | operator, supervisor, quality, ml_engineer | `precondition_failed`, `not_needed` | crea caso en `review_queue` | `UNIQUE(plant_id, image_id)` | `tool_write` |
+| `list_review_queue` | lectura | supervisor, quality, ml_engineer, plant_manager | — | — | — | `tool_read` |
+| `submit_review_label` | escritura | supervisor, quality, ml_engineer | `not_found`, `conflict` | caso → `label_proposed` (sin dataset) | `case_id` (+ valores; `already_labeled`) | `tool_write`; confirmación humana: `label_confirmed` / `label_rejected` |
+| `get_line_metrics` | lectura | todos los roles | `invalid_args` (ventana) | — | — | `tool_read` |
+| `get_camera_health` | lectura | todos los roles | `invalid_args` (ventana) | — | — | `tool_read` |
+| `get_model_versions` | lectura | supervisor, quality, ml_engineer, plant_manager | — | — | — | `tool_read` |
+| `get_robot_events` | lectura | supervisor, quality, maintenance, ml_engineer, plant_manager | `invalid_args` (ventana) | — | — | `tool_read` |
+| `search_procedures` | lectura | todos los roles | — | — | — | `tool_read` |
+| `list_tickets` | lectura | supervisor, quality, maintenance, ml_engineer, plant_manager | — | — | — | `tool_read` |
+| `create_ticket` | escritura | supervisor, quality, maintenance, ml_engineer, plant_manager | — | inserta en `tickets` | sha256(planta, línea, categoría, día) | `tool_write` |
+| `escalate_ticket` | escritura | supervisor, maintenance, plant_manager | `not_found`, `precondition_failed` | actualiza equipo y severidad | (ticket, equipo) → `already_escalated` | `tool_write` |
+| `stage_new_sku` | escritura | quality, ml_engineer | `vision_not_bound`, `invalid_args`, `not_found_in_scope`, `vision_unavailable`, `vision_error` | `POST /v1/skus/stage`, filas en `sku_staging` y `model_registry` (staging, con planta) | sha256(planta, sku, pares (imagen, ángulo)) | `tool_write` |
+| `request_risky_operation` | escritura | supervisor, quality, maintenance, ml_engineer, plant_manager (operación según `can_request`) | `forbidden`, `invalid_args`, `line_state`, `out_of_bounds`, `gates_failed`, `vision_not_bound` | crea aprobación `pending` (no ejecuta) | sha256(planta, línea, operación, parámetros, solicitante) mientras esté pendiente | `tool_write`; decisión humana: `approval_executed` / `approval_failed` / `approval_rejected` / `approval_denied` / `approval_expired` |
+| `generate_shift_report` | escritura | supervisor, quality, plant_manager | — | upsert en `shift_reports` | (planta, línea, turno) | `tool_write` |
+| `save_user_preference` | escritura | todos los roles | `rejected` (posible inyección) | upsert en `user_memory` (TTL 30 d) | (usuario, clave) | `tool_write` |
+
+Fuera de las tools también se auditan `auth_denied` (identidad o planta inválida) y los intentos de suplantación en el cuerpo de la petición.
+
 ## Lectura (8)
 
 | Tool | Entrada | Salida | Notas |

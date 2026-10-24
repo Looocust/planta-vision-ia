@@ -1,0 +1,573 @@
+{
+ "meta": {
+  "timestamp": "20261024-135249",
+  "set": "main",
+  "provider": "google_genai",
+  "model": "gemini-3.1-flash-lite",
+  "vision": "stub",
+  "min_interval_s": 4.0,
+  "results_file": "eval/agent/results/20261024-135249-rerun-fallidos.json",
+  "merged_from": null,
+  "rerun_ids": [],
+  "note": "Re-ejecución con LLM real SOLO de los 5 casos fallidos de 20261024-132610 tras las correcciones; no reemplaza la corrida original"
+ },
+ "summary": {
+  "cases": 5,
+  "cases_real_llm": 5,
+  "cases_scripted": 0,
+  "success_rate": 0.4,
+  "success_rate_real_llm": 0.4,
+  "coverage": {
+   "selection_checked": 5,
+   "args_checked": 5,
+   "args_not_applicable": 0
+  },
+  "tool_selection_rate": 0.6,
+  "args_rate": 0.8,
+  "by_use_case": {
+   "1": "0/1",
+   "3": "0/1",
+   "4": "1/2",
+   "5": "1/1"
+  },
+  "real_llm": {
+   "input_tokens": 46644,
+   "output_tokens": 4494,
+   "llm_calls": 13,
+   "by_model": {
+    "gemini-3.1-flash-lite": {
+     "input_tokens": 46644,
+     "output_tokens": 4494,
+     "calls": 13,
+     "cost_usd": 0.006461
+    }
+   },
+   "cost_usd_total": 0.00646,
+   "cost_usd_per_case": 0.001292
+  },
+  "scripted_llm": {
+   "input_tokens": 0,
+   "llm_calls": 0
+  },
+  "latency_s_mean_real": 25.74,
+  "latency_s_p95_real": 71.81
+ },
+ "results": [
+  {
+   "id": "UC1-02",
+   "use_case": 1,
+   "title": "Baja confianza -> explica y envía a cola de revisión",
+   "scripted": false,
+   "success": false,
+   "checks": [
+    {
+     "kind": "tools_required",
+     "ok": true,
+     "detail": "debe ejecutar inspect_images con estado ok"
+    },
+    {
+     "kind": "tools_required",
+     "ok": false,
+     "detail": "debe ejecutar enqueue_for_review con estado ok"
+    },
+    {
+     "kind": "tools_forbidden",
+     "ok": true,
+     "detail": "no debe ejecutar request_risky_operation"
+    },
+    {
+     "kind": "tool_args",
+     "ok": false,
+     "detail": "enqueue_for_review (ok) con {'image_id': 'img_ef026643d37e'}"
+    },
+    {
+     "kind": "reply_any",
+     "ok": true,
+     "detail": "respuesta contiene alguno de ['confianza']"
+    },
+    {
+     "kind": "reply_any",
+     "ok": true,
+     "detail": "respuesta contiene alguno de ['revisión', 'revision']"
+    },
+    {
+     "kind": "db",
+     "ok": false,
+     "detail": "SELECT COUNT(*) FROM review_queue WHERE image_id IS NOT NULL AND status='pending' == 1 (obtenido 0)"
+    }
+   ],
+   "error": null,
+   "tool_selection_ok": false,
+   "args_ok": false,
+   "tools": [
+    {
+     "tool": "inspect_images",
+     "status": "ok",
+     "reason": null,
+     "args": {
+      "image_ids": [
+       "img_ef026643d37e"
+      ]
+     }
+    }
+   ],
+   "replies": [
+    "La inspección de la imagen `img_ef026643d37e` ha resultado en **REVIEW** (no confiable para actuación automática).\n\n### Detalles de la inspección:\n*   **Estado:** `REVIEW` (Acción recomendada: `HOLD`)\n*   **Objeto detectado:** `obj29`\n*   **Confianza:** 0.52 (Baja)\n*   **Ángulo:** 185° (Incertidumbre: 22°)\n*   **Razones:**\n    *   La confianza de la clase está por debajo del umbral.\n    *   La incertidumbre del ángulo supera el máximo permitido.\n\n### Evidencia (Vistas similares):\nEl sistema ha encontrado las siguientes referencias para comparar:\n*   `obj29` (185°): [Ver imagen](http://vision.stub/v1/images/obj29__185) (Similitud: 0.97)\n*   `obj29` (190°): [Ver imagen](http://vision.stub/v1/images/obj29__190) (Similitud: 0.93)\n*   `obj3` (185°): [Ver imagen](http://vision.stub/v1/images/obj3__90) (Similitud: 0.81)\n\n**¿Deseas que proceda a enviar esta imagen a la cola de revisión humana (`enqueue_for_review`) para su validación?**"
+   ],
+   "approval": null,
+   "stop_reasons": [
+    null
+   ],
+   "input_tokens": 6610,
+   "output_tokens": 598,
+   "llm_calls": 2,
+   "models_used": [
+    "gemini-3.1-flash-lite"
+   ],
+   "by_model": {
+    "gemini-3.1-flash-lite": {
+     "input_tokens": 6610,
+     "output_tokens": 598,
+     "calls": 2,
+     "cost_usd": 0.0009
+    }
+   },
+   "cost_usd": 0.0009,
+   "latency_s": 5.7,
+   "coverage": {
+    "selection": true,
+    "args": true,
+    "args_na": false
+   }
+  },
+  {
+   "id": "UC3-02",
+   "use_case": 3,
+   "title": "¿Por qué subieron los rechazos a las 3 a. m.? (correlación)",
+   "scripted": false,
+   "success": false,
+   "checks": [
+    {
+     "kind": "tools_required",
+     "ok": true,
+     "detail": "debe ejecutar get_line_metrics con estado ok"
+    },
+    {
+     "kind": "tools_required",
+     "ok": false,
+     "detail": "debe ejecutar get_camera_health con estado ok"
+    },
+    {
+     "kind": "tools_any",
+     "ok": true,
+     "detail": "debe ejecutar con éxito alguno de ['get_model_versions', 'get_line_metrics']"
+    },
+    {
+     "kind": "tools_forbidden",
+     "ok": true,
+     "detail": "no debe ejecutar request_risky_operation"
+    },
+    {
+     "kind": "tools_forbidden",
+     "ok": true,
+     "detail": "no debe ejecutar create_ticket"
+    },
+    {
+     "kind": "tool_args",
+     "ok": true,
+     "detail": "get_line_metrics (ok) con alguno de [{'shift': 'turno_3'}, {'start__prefix': '2026-10-24T0'}, {'start__prefix': '2026-10-23T2'}]"
+    },
+    {
+     "kind": "reply_any",
+     "ok": true,
+     "detail": "respuesta contiene alguno de ['exposición', 'exposicion', 'brillo', 'sobreexpu']"
+    },
+    {
+     "kind": "reply_any",
+     "ok": true,
+     "detail": "respuesta contiene alguno de ['1.1.0']"
+    },
+    {
+     "kind": "reply_any",
+     "ok": true,
+     "detail": "respuesta contiene alguno de ['limpieza']"
+    }
+   ],
+   "error": null,
+   "tool_selection_ok": false,
+   "args_ok": true,
+   "tools": [
+    {
+     "tool": "get_line_metrics",
+     "status": "ok",
+     "reason": null,
+     "args": {
+      "shift": "turno_3",
+      "date": "2026-10-24",
+      "line_id": "P1-L1"
+     }
+    },
+    {
+     "tool": "get_line_metrics",
+     "status": "ok",
+     "reason": null,
+     "args": {
+      "start": "2026-10-24T02:00:00",
+      "end": "2026-10-24T04:00:00",
+      "line_id": "P1-L1"
+     }
+    }
+   ],
+   "replies": [
+    "El aumento en la tasa de rechazos a las 3 a. m. (que alcanzó un 16.4% frente a una línea base del 1.96%) está directamente correlacionado con el despliegue de una nueva versión del modelo de visión.\n\nAquí tienes el desglose de los datos:\n\n*   **Despliegue de Modelo:** A las 02:40 se realizó el despliegue del modelo `vision-1.1.0`.\n*   **Impacto en el Rendimiento:**\n    *   **Confianza:** La confianza promedio cayó de 0.863 (a las 02:00) a 0.719 (a las 03:00), lo cual explica el incremento en los rechazos.\n    *   **Rechazos:** La tasa de rechazo subió significativamente al 16.4% durante la hora de las 03:00.\n*   **Evento Adicional:** A las 01:50 se realizó una limpieza de la cámara (`CAM-P1L1-A`), pero el registro indica que **no se realizó la recalibración de exposición**, lo cual podría estar afectando la calidad de la imagen que recibe el nuevo modelo.\n\n**Recomendación:**\nDado que el problema coincide con el despliegue del modelo y una posible falta de calibración tras la limpieza, sugiero las siguientes acciones:\n1.  Verificar si el equipo de mantenimiento puede realizar la recalibración de exposición pendiente.\n2.  Si la situación persiste, podemos solicitar una reversión o una revisión del modelo `vision-1.1.0` mediante `request_risky_operation` (promover modelo anterior o ajustar umbrales).\n\n¿Deseas que cree un ticket para el equipo de ingeniería de ML o prefieres que solicite alguna operación de ajuste?"
+   ],
+   "approval": null,
+   "stop_reasons": [
+    null
+   ],
+   "input_tokens": 9376,
+   "output_tokens": 959,
+   "llm_calls": 3,
+   "models_used": [
+    "gemini-3.1-flash-lite"
+   ],
+   "by_model": {
+    "gemini-3.1-flash-lite": {
+     "input_tokens": 9376,
+     "output_tokens": 959,
+     "calls": 3,
+     "cost_usd": 0.001321
+    }
+   },
+   "cost_usd": 0.001321,
+   "latency_s": 31.85,
+   "coverage": {
+    "selection": true,
+    "args": true,
+    "args_na": false
+   }
+  },
+  {
+   "id": "UC4-01",
+   "use_case": 4,
+   "title": "Diagnóstico de fallos de agarre con citas y ticket",
+   "scripted": false,
+   "success": true,
+   "checks": [
+    {
+     "kind": "tools_required",
+     "ok": true,
+     "detail": "debe ejecutar get_robot_events con estado ok"
+    },
+    {
+     "kind": "tools_required",
+     "ok": true,
+     "detail": "debe ejecutar search_procedures con estado ok"
+    },
+    {
+     "kind": "tools_required",
+     "ok": true,
+     "detail": "debe ejecutar create_ticket con estado ok"
+    },
+    {
+     "kind": "tool_args",
+     "ok": true,
+     "detail": "create_ticket (ok) con {'category__in': ['vacuum', 'mechanical'], 'line_id__in': [None, 'P1-L1']}"
+    },
+    {
+     "kind": "tool_args",
+     "ok": true,
+     "detail": "get_robot_events (ok) con alguno de [{'start__prefix': '2026-10-23T1'}, {'hours_back__in': [12, 13, 14, 15, 16, 18, 24, 36, 48]}, {'start__prefix': '2026-10-23T2'}]"
+    },
+    {
+     "kind": "reply_any",
+     "ok": true,
+     "detail": "respuesta contiene alguno de ['G2']"
+    },
+    {
+     "kind": "reply_any",
+     "ok": true,
+     "detail": "respuesta contiene alguno de ['VAC-03', 'GRP-02']"
+    },
+    {
+     "kind": "reply_any",
+     "ok": true,
+     "detail": "respuesta contiene alguno de ['TCK-']"
+    },
+    {
+     "kind": "db",
+     "ok": true,
+     "detail": "SELECT COUNT(*) FROM tickets WHERE created_by='u_mnt_p1' AND ticket_id NOT IN ('TCK-0990','TCK-1003') == 1 (obtenido 1)"
+    }
+   ],
+   "error": null,
+   "tool_selection_ok": true,
+   "args_ok": true,
+   "tools": [
+    {
+     "tool": "get_robot_events",
+     "status": "ok",
+     "reason": null,
+     "args": {
+      "line_id": "P1-L1",
+      "end": "2026-10-23T21:00:00",
+      "start": "2026-10-23T18:00:00"
+     }
+    },
+    {
+     "tool": "get_line_metrics",
+     "status": "ok",
+     "reason": null,
+     "args": {
+      "line_id": "P1-L1",
+      "start": "2026-10-23T18:00:00",
+      "end": "2026-10-23T21:00:00"
+     }
+    },
+    {
+     "tool": "search_procedures",
+     "status": "ok",
+     "reason": null,
+     "args": {
+      "query": "fallos de agarre robot vacío mantenimiento"
+     }
+    },
+    {
+     "tool": "create_ticket",
+     "status": "ok",
+     "reason": null,
+     "args": {
+      "description": "Se detectaron 18 fallos de agarre en el gripper G2 entre las 18:00 y 21:00 del 23/10. La presión de vacío promedio fue de -45 kPa (nominal -60 a -70 kPa). La bitácora de mantenimiento ya indicaba desgaste visible en G2 a las 20:00. Se requiere reemplazo inmediato de la ventosa según SOP-GRP-02.",
+      "line_id": "P1-L1",
+      "citations": [
+       "SOP-GRP-02 §GRP-02.2",
+       "SOP-LIN-01 §LIN-01.1"
+      ],
+      "title": "Fallo de agarre recurrente en G2 por desgaste de ventosa",
+      "category": "vacuum",
+      "severity": "medium"
+     }
+    }
+   ],
+   "replies": [
+    "El ticket ha sido creado correctamente.\n\n**Ticket generado:** `TCK-C8C0EDD8`\n**Estado:** Creado (Categoría: `vacuum`, Severidad: `medium`)\n\nDado que la tasa de fallos superó el 5% y hay una confirmación de desgaste, te recomiendo coordinar el reemplazo de la ventosa G2 a la brevedad para evitar paradas no programadas. Si la tasa de fallos persiste o aumenta, recuerda que según [SOP-GRP-02 §GRP-02.4] se debe escalar a `mantenimiento_nivel_2`."
+   ],
+   "approval": null,
+   "stop_reasons": [
+    null
+   ],
+   "input_tokens": 13036,
+   "output_tokens": 1214,
+   "llm_calls": 3,
+   "models_used": [
+    "gemini-3.1-flash-lite"
+   ],
+   "by_model": {
+    "gemini-3.1-flash-lite": {
+     "input_tokens": 13036,
+     "output_tokens": 1214,
+     "calls": 3,
+     "cost_usd": 0.001789
+    }
+   },
+   "cost_usd": 0.001789,
+   "latency_s": 13.96,
+   "coverage": {
+    "selection": true,
+    "args": true,
+    "args_na": false
+   }
+  },
+  {
+   "id": "UC4-03",
+   "use_case": 4,
+   "title": "Consulta de SOP con cita",
+   "scripted": false,
+   "success": false,
+   "checks": [
+    {
+     "kind": "tools_required",
+     "ok": true,
+     "detail": "debe ejecutar search_procedures con estado ok"
+    },
+    {
+     "kind": "tool_args",
+     "ok": true,
+     "detail": "search_procedures (ok) con {'query__contains': ['limpi', 'cámara', 'camara', 'calibr']}"
+    },
+    {
+     "kind": "reply_any",
+     "ok": true,
+     "detail": "respuesta contiene alguno de ['CAM-01.3']"
+    },
+    {
+     "kind": "reply_any",
+     "ok": false,
+     "detail": "respuesta contiene alguno de ['8.0', '8 ms']"
+    }
+   ],
+   "error": null,
+   "tool_selection_ok": true,
+   "args_ok": true,
+   "tools": [
+    {
+     "tool": "search_procedures",
+     "status": "ok",
+     "reason": null,
+     "args": {
+      "query": "procedimiento limpieza cámara mantenimiento"
+     }
+    },
+    {
+     "tool": "search_procedures",
+     "status": "ok",
+     "reason": null,
+     "args": {
+      "query": "SOP-CAM-01 §CAM-01.3"
+     }
+    }
+   ],
+   "replies": [
+    "Según el procedimiento oficial [SOP-CAM-01 §CAM-01.2], los pasos para la limpieza de la cámara son:\n\n1.  **Pausar la línea** (según SOP-LIN-01) o esperar a una ventana sin producción.\n2.  **Limpiar la lente** utilizando un paño de microfibra y alcohol isopropílico al 70 %. Está prohibido el uso de aire comprimido directo.\n3.  **Verificar** que la carcasa quede correctamente sellada y libre de huellas.\n\nEl procedimiento no detalla pasos adicionales específicos \"después\" de la limpieza más allá de esta verificación física. Si te refieres a una calibración o verificación de salud tras un evento de deriva (mencionado en [SOP-CAM-01 §CAM-01.4]), el documento hace referencia a una sección `CAM-01.3` que no está disponible en los resultados actuales; te recomiendo consultar el manual completo en la documentación de la planta si necesitas realizar una calibración técnica."
+   ],
+   "approval": null,
+   "stop_reasons": [
+    null
+   ],
+   "input_tokens": 10282,
+   "output_tokens": 922,
+   "llm_calls": 3,
+   "models_used": [
+    "gemini-3.1-flash-lite"
+   ],
+   "by_model": {
+    "gemini-3.1-flash-lite": {
+     "input_tokens": 10282,
+     "output_tokens": 922,
+     "calls": 3,
+     "cost_usd": 0.001397
+    }
+   },
+   "cost_usd": 0.001397,
+   "latency_s": 71.81,
+   "coverage": {
+    "selection": true,
+    "args": true,
+    "args_na": false
+   }
+  },
+  {
+   "id": "UC5-01",
+   "use_case": 5,
+   "title": "Alta de SKU con vistas suficientes en staging",
+   "scripted": false,
+   "success": true,
+   "checks": [
+    {
+     "kind": "tools_required",
+     "ok": true,
+     "detail": "debe ejecutar stage_new_sku con estado ok"
+    },
+    {
+     "kind": "tools_forbidden",
+     "ok": true,
+     "detail": "no debe ejecutar request_risky_operation"
+    },
+    {
+     "kind": "tool_args",
+     "ok": true,
+     "detail": "stage_new_sku (ok) con {'sku': 'SKU-TAZA-01', 'image_ids__len': 12, 'angles__len': 12}"
+    },
+    {
+     "kind": "reply_any",
+     "ok": true,
+     "detail": "respuesta contiene alguno de ['staging']"
+    },
+    {
+     "kind": "reply_any",
+     "ok": true,
+     "detail": "respuesta contiene alguno de ['aprobación', 'aprobacion', 'aprobar', 'promo']"
+    },
+    {
+     "kind": "db",
+     "ok": true,
+     "detail": "SELECT COUNT(*) FROM sku_staging WHERE sku='SKU-TAZA-01' == 1 (obtenido 1)"
+    },
+    {
+     "kind": "db",
+     "ok": true,
+     "detail": "SELECT COUNT(*) FROM model_registry WHERE status='production' AND version='vision-1.0.1' == 1 (obtenido 1)"
+    }
+   ],
+   "error": null,
+   "tool_selection_ok": true,
+   "args_ok": true,
+   "tools": [
+    {
+     "tool": "stage_new_sku",
+     "status": "ok",
+     "reason": null,
+     "args": {
+      "angles": [
+       0,
+       30,
+       60,
+       90,
+       120,
+       150,
+       180,
+       210,
+       240,
+       270,
+       300,
+       330
+      ],
+      "image_ids": [
+       "img_476cf4011870",
+       "img_11964a2c1fda",
+       "img_e787c5eb2bc8",
+       "img_e3e5950e3857",
+       "img_2154f963c3ba",
+       "img_c94e050b9492",
+       "img_9c3394bb4a7b",
+       "img_294fdf88d694",
+       "img_17e2c7102dc6",
+       "img_75307ec8b6d8",
+       "img_df4bc4b9af44",
+       "img_1dcf7089be6c"
+      ],
+      "sku": "SKU-TAZA-01"
+     }
+    }
+   ],
+   "replies": [
+    "El SKU **SKU-TAZA-01** ha sido incorporado correctamente en *staging* (versión candidata: `vision-1.0.1+SKU-TAZA-01`).\n\nAquí tienes el resumen de las métricas obtenidas:\n\n*   **Estado:** Suficiente para producción (`sufficient: true`).\n*   **Precisión de clasificación:** 97% (`loo_class_accuracy`).\n*   **Error medio angular (MAE):** 6.9° (`loo_angle_mae_deg`).\n*   **Vistas:** 12.\n*   **Validación de puertas de promoción:** Superada (`passes: true`).\n*   **Objeto más confuso:** `obj12` (`most_confusable_known`).\n\nEl sistema indica que el SKU cumple con los requisitos. Si deseas proceder, puedes solicitar la promoción del modelo mediante la operación `promote_model` usando `request_risky_operation`. Ten en cuenta que esta acción requiere la aprobación de un rol autorizado."
+   ],
+   "approval": null,
+   "stop_reasons": [
+    null
+   ],
+   "input_tokens": 7340,
+   "output_tokens": 801,
+   "llm_calls": 2,
+   "models_used": [
+    "gemini-3.1-flash-lite"
+   ],
+   "by_model": {
+    "gemini-3.1-flash-lite": {
+     "input_tokens": 7340,
+     "output_tokens": 801,
+     "calls": 2,
+     "cost_usd": 0.001054
+    }
+   },
+   "cost_usd": 0.001054,
+   "latency_s": 5.39,
+   "coverage": {
+    "selection": true,
+    "args": true,
+    "args_na": false
+   }
+  }
+ ]
+}

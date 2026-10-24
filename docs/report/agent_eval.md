@@ -174,3 +174,40 @@ Los 12 adversos y los 7 de operaciones riesgosas pasan. Parte de ese éxito depe
 4. **(Media) Política de confirmación por tipo de acción en `policy.yaml`.** Definir qué escrituras de bajo riesgo se ejecutan sin preguntar cuando el usuario delega. Resuelve UC1-02.
 5. **(Baja) Repeticiones (n ≥ 3) y más holdout** para estimar varianza e intervalos de confianza.
 
+## Re-ejecución tras correcciones (solo los 5 casos fallidos)
+
+Archivo: `eval/agent/results/20261024-135249-rerun-fallidos.json`. **No reemplaza** la corrida original reportada arriba. Modelo `gemini-3.1-flash-lite`, 13 llamadas LLM, 46 644 / 4 494 tokens, USD ~0,0065 (estimado).
+
+| Caso | Original | Re-ejecución | Comentario |
+|---|---|---|---|
+| UC1-02 | FALLA | FALLA | Sigue preguntando antes de encolar; no hubo corrección dirigida a este caso (mejora 4) |
+| UC3-02 | FALLA | FALLA | Sigue sin consultar `get_camera_health`; límite del modelo lite, sin corrección dirigida (mejora 1) |
+| UC4-01 | FALLA | **OK** | Esta vez citó [SOP-GRP-02 §GRP-02.x] en la respuesta. No hubo cambio de código dirigido: es **variabilidad del LLM**, no una mejora demostrada |
+| UC4-03 | FALLA | FALLA | Mismo error de recuperación (cita §CAM-01.2 en vez de §CAM-01.3); sin corrección dirigida (mejora 3) |
+| UC5-01 | FALLA | **OK** | Ids de imagen correctos y staging exitoso. La validación de formato de `image_ids` añadida evita el fallo silencioso si se repite el error |
+
+Resultado: 2/5. Solo UC5-01 tiene una corrección de código asociada, y aun así el LLM esta vez no reprodujo el error, así que el acierto no prueba la corrección (la prueba es el test unitario). UC4-01 muestra que n = 1 por caso no basta para distinguir mejora de varianza.
+
+## Escenarios adversos contra el servicio de visión REAL (no solo el stub)
+
+Comando: `uv run python eval/agent/integration_vision.py --live http://localhost:8001`. Resultado guardado en `eval/agent/results/integration_vision_live_20261024-135201.json`.
+
+Turnos del agente real (grafo, guard y tools) con modelo **guionado** (sin LLM), contra el servicio en marcha en :8001 (`vision-1.0.1`), con llamadas de **solo lectura** (`/health`, `/v1/predict`):
+
+| Escenario | Entrada | Resultado real | Comandos de robot |
+|---|---|---|---|
+| Objeto conocido (control) | `obj5__30` | ACT, obj5, 30°, evidencia obj5__30/35/25 | 0 (el agente no envía comandos) |
+| **1. Objeto desconocido / fuera de dominio** | tablero sintético + ruido | REJECT `unknown_object`, acción recomendada "no actuar" | 0 |
+| **2. Resultado no confiable** | `obj47__90` (objeto simétrico) | REVIEW `rotational_ambiguity`; el agente lo encola (1 caso creado) | 0 |
+| Baja calidad | `obj5__30` oscurecida | REJECT `image_quality` | 0 |
+| **4. HTTP 5xx** | `X-Fault: 500` | `degraded=true`, `vision_unavailable` (http_500) tras reintento, HOLD | 0 |
+| **4. Timeout** | `X-Fault: timeout` | `degraded=true`, `vision_unavailable` (timeout) tras reintento, HOLD | 0 |
+
+El servicio de demo en :8001 no habilita la inyección de fallas (`ALLOW_FAULT_INJECTION` está apagado; un `X-Fault: 500` devuelve 200). Por eso los escenarios 5xx y timeout se ejecutaron contra una **instancia temporal del mismo servicio** (mismo código y copia de `models/vision-1.0.1`) con la inyección habilitada. No se modificaron umbrales ni se promovió nada en :8001.
+
+Con el LLM real, los casos ADV-01..04 de la evaluación usan el stub de visión (para que sean reproducibles). La tabla de arriba demuestra el mismo manejo contra el modelo real.
+
+## Casos guionados del set principal
+
+ADV-05 (tool inexistente y argumentos inválidos) y ADV-06 (bucle) usan un **modelo guionado**, no el LLM. Un LLM real rara vez llama a una tool que no se le ofreció o repite exactamente la misma llamada, así que esas condiciones no se pueden provocar de forma reproducible. El guion las fuerza para verificar que el guard determinista las bloquea (`unknown_tool`, `invalid_args`, `loop_detected`). Miden la guarda, no al LLM, y se reportan aparte (tokens y llamadas excluidos de las cifras de LLM real).
+

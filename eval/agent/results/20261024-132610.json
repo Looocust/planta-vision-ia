@@ -8,7 +8,9 @@
   "min_interval_s": 4.0,
   "results_file": "eval/agent/results/20261024-132610.json",
   "merged_from": null,
-  "rerun_ids": []
+  "rerun_ids": [],
+  "recomputed_from_saved_results": true,
+  "recompute_note": "summary recalculado con la definición vigente de cobertura (solo expectativas no vacías); results por caso sin cambios; ver summary_as_run"
  },
  "summary": {
   "cases": 43,
@@ -17,11 +19,11 @@
   "success_rate": 0.884,
   "success_rate_real_llm": 0.878,
   "coverage": {
-   "selection_checked": 43,
+   "selection_checked": 42,
    "args_checked": 38,
    "args_not_applicable": 5
   },
-  "tool_selection_rate": 0.93,
+  "tool_selection_rate": 0.929,
   "args_rate": 0.947,
   "by_use_case": {
    "1": "3/4",
@@ -2230,7 +2232,7 @@
    "cost_usd": 0.00075,
    "latency_s": 8.41,
    "coverage": {
-    "selection": true,
+    "selection": false,
     "args": true,
     "args_na": false
    }
@@ -3539,5 +3541,51 @@
     "args_na": false
    }
   }
- ]
+ ],
+ "summary_as_run": {
+  "cases": 43,
+  "cases_real_llm": 41,
+  "cases_scripted": 2,
+  "success_rate": 0.884,
+  "success_rate_real_llm": 0.878,
+  "coverage": {
+   "selection_checked": 43,
+   "args_checked": 38,
+   "args_not_applicable": 5
+  },
+  "tool_selection_rate": 0.93,
+  "args_rate": 0.947,
+  "by_use_case": {
+   "1": "3/4",
+   "2": "4/4",
+   "3": "3/4",
+   "4": "3/5",
+   "5": "3/4",
+   "6": "7/7",
+   "7": "2/2",
+   "ADV": "12/12",
+   "MEM": "1/1"
+  },
+  "real_llm": {
+   "input_tokens": 258520,
+   "output_tokens": 20527,
+   "llm_calls": 81,
+   "by_model": {
+    "gemini-3.1-flash-lite": {
+     "input_tokens": 258520,
+     "output_tokens": 20527,
+     "calls": 81,
+     "cost_usd": 0.034065
+    }
+   },
+   "cost_usd_total": 0.03406,
+   "cost_usd_per_case": 0.000831
+  },
+  "scripted_llm": {
+   "input_tokens": 700,
+   "llm_calls": 7
+  },
+  "latency_s_mean_real": 18.29,
+  "latency_s_p95_real": 53.01
+ }
 }
