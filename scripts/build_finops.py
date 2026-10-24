@@ -264,8 +264,8 @@ SUPUESTOS: list = [
     ("factor_cobertura", "Factor de cobertura (vacaciones, ausentismo, relevos)", 1.15, "×", "Supuesto", "Cubrir 1 puesto requiere ~15% más horas pagadas que horas de puesto", NUM),
     ("throughput_obj_h", "Objetos procesados por hora por estación", 600, "obj/h", "Supuesto", "1 objeto cada 6 s. Ajustar con el dato real de la línea", INT),
     "Desempeño del sistema automático",
-    ("pct_automatizado", "% de objetos resueltos sin humano (decisión ACT correcta)", 0.922, "%", "Medido",
-     "Cobertura ACT medida en test, protocolo A, receta classic-logreg-v1 (docs/report/results.json): 92,2 % con 0,21 % de error entre ACT. Con desconocidos mezclados (D variante) baja a 77,0 %. Planta real: validar en piloto. Ver Sensibilidad", PCT),
+    ("pct_automatizado", "% de objetos resueltos sin humano (decisión ACT correcta)", 0.903, "%", "Medido",
+     "Cobertura ACT medida en test, protocolo A, vision-1.0.1 (docs/report/results.json): 90,3 % con 0,09 % de error entre ACT (IC95 0,03-0,27 %). Con desconocidos mezclados (D variante) baja a 73,7-74,9 %. Planta real: re-medir en piloto. Ver Sensibilidad", PCT),
     ("min_caso_revision", "Minutos humanos por caso en cola (REVIEW/REJECT)", 0.5, "min/caso", "Supuesto", "Mirar evidencia + reubicar el objeto desviado (~30 s)", NUM),
     ("fraccion_atencion", "Fracción de las horas de operación de la estación que requiere una persona (supervisión itinerante, atascos, reabastecer)", 0.10, "% horas puesto", "Supuesto",
      "Horas residuales = fracción × horas_mes × factor_cobertura (≈ 60 h pagadas/mes). NO es FTE", PCT),
@@ -709,11 +709,11 @@ sen = wb.create_sheet("Sensibilidad")
 title(sen, "Sensibilidad", "Celdas azules de la primera columna son editables. Todo lo demás se recalcula desde Supuestos y las "
       "hojas de nube (Azure; Colombia con precios EE. UU., España con precios UE).", 7)
 
-sen["A4"] = ("1) % automatizado (estaciones de Supuestos) — Azure. 92,2% = medido (protocolo A); 77,0% = medido con objetos "
+sen["A4"] = ("1) % automatizado (estaciones de Supuestos) — Azure. 90,3% = medido (vision-1.0.1, protocolo A); 73,7-74,9% = medido con objetos "
              "desconocidos mezclados (variante D). El almacenamiento de imágenes también escala con el %.")
 sen["A4"].font = BOLD
 header(sen, 5, ["% automatizado", "Residual cola CO", "Ahorro CO", "Payback CO (meses)", "Residual cola ES", "Ahorro ES", "Payback ES (meses)"])
-PCTS = [0.77, 0.80, 0.90, 0.922, 0.95, 0.99]
+PCTS = [0.737, 0.749, 0.80, 0.90, 0.903, 0.95, 0.99]
 for i, p in enumerate(PCTS, start=6):
     c = sen.cell(row=i, column=1, value=p)
     c.number_format = PCT

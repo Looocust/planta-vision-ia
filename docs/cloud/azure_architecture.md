@@ -356,9 +356,9 @@ La clave: **la nube puede fallar sin parar la producción**. Por eso no se paga 
 | Etapa | Estimado | Comentario |
 |---|---|---|
 | Captura (exposición + transferencia) | 10–20 ms | Depende de cámara e interfaz |
-| Pipeline de visión completo (calidad + características + clase + ángulo + decisión) | **p50 16,8 ms · p95 39,5 ms · media 19,9 ms** | **Medido** en CPU de portátil, `docs/report/results.json` (`cost.latency`) |
+| Pipeline de visión completo (calidad + características + clase + ángulo + decisión) | **p50 18,0 ms · p95 24,6 ms · media 16,8 ms** | **Medido** en CPU de portátil con `vision-1.0.1`, 1 imagen, `docs/report/results.json` (`cost.latency`) |
 | Envío al PLC (OPC UA, red local) | 5–20 ms | Estimado |
-| **Total hasta el PLC** | **≈ 32–80 ms (presupuesto: < 100 ms)** | Frente a un ciclo de ~6 s por objeto. Con p95 de visión, el total queda < 80 ms |
+| **Total hasta el PLC** | **≈ 33–65 ms (presupuesto: < 100 ms)** | Frente a un ciclo de ~6 s por objeto. Con p95 de visión, el total queda < 65 ms |
 | *Alternativa en la nube* | +60–150 ms de ida y vuelta + jitter + caídas | **Rechazada**: no aporta y añade un punto de falla |
 
 *Captura y PLC son estimaciones; el pipeline de visión está medido en la demo (no en el PC industrial). Validar en el piloto con la cámara real.*
@@ -368,7 +368,7 @@ La clave: **la nube puede fallar sin parar la producción**. Por eso no se paga 
 ## 11. Costos
 
 Detalle con fórmulas en [`finops_model.xlsx`](finops_model.xlsx) y prácticas en [`finops.md`](finops.md).
-Escenario base: 1 planta, 1 estación, **92,2% automatizado (medido** en test, protocolo A), precios de lista por región.
+Escenario base: 1 planta, 1 estación, **90,3% automatizado (medido** en test, protocolo A, `vision-1.0.1`), precios de lista por región.
 
 | Bloque | East US 2 (USD/mes) | Spain Central (USD/mes) | Fuente del precio |
 |---|---|---|---|
@@ -379,9 +379,9 @@ Escenario base: 1 planta, 1 estación, **92,2% automatizado (medido** en test, p
 
 Los mayores costos son **PostgreSQL con HA (≈ 275)**, los **Private Endpoints** (≈ 73 del entorno + ≈ 44 de PaaS),
 **AI Search (≈ 74)** y las **2 réplicas del agente (≈ 56)**, no el LLM. El costo de la nube es
-pequeño frente al costo laboral evitado; el número que más mueve el caso de negocio es el **% automatizado**: con 92,2% el ahorro es ≈ 29% en Colombia
-(payback ≈ 71 meses con 1 estación, ≈ 22 con 5) y ≈ 50% en España (≈ 8 meses); el equilibrio está en ≈ 86% (CO) / 81% (ES),
-y con el 77% medido con objetos desconocidos no hay ahorro.
+pequeño frente al costo laboral evitado; el número que más mueve el caso de negocio es el **% automatizado**: con 90,3% el ahorro es ≈ 20% en Colombia
+(payback ≈ 100 meses con 1 estación, ≈ 27 con 5) y ≈ 41% en España (≈ 10 meses); el equilibrio está en ≈ 86% (CO) / 81% (ES),
+y con el 73,7-74,9% medido con objetos desconocidos no hay ahorro.
 
 ---
 

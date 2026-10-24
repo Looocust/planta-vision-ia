@@ -3,7 +3,7 @@
 > **Recomendación: Azure**, con una salvedad honesta: en el modelo de costos AWS sale **~USD 227/mes más barato por
 > planta en EE. UU. y ~USD 277/mes en España** a precio de lista, sobre todo por decisiones de diseño (Private Endpoint del
 > entorno, AI Search, PostgreSQL con HA) y no porque el proveedor sea intrínsecamente más barato. Esa diferencia equivale
-> al **≈ 32% del ahorro mensual en Colombia** (1 estación, 92,2% automatizado medido) y al **≈ 4,5% en España**: en Colombia **sí pesa** y es
+> al **≈ 45% del ahorro mensual en Colombia** (1 estación, 90,3% automatizado medido) y al **≈ 5,4% en España**: en Colombia **sí pesa** y es
 > argumento para recortar el diseño Azure del piloto (ver §3, punto 4).
 > Deciden el encaje con el ecosistema Microsoft del cliente, la gestión unificada del borde y la residencia
 > de datos del LLM.

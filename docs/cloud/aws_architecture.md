@@ -144,8 +144,8 @@ restauración de snapshot copiado a otra región. Objetivos iguales a los de Azu
 
 ## 10. Latencia
 
-Idéntica a Azure §10 (el camino crítico no toca la nube): pipeline de visión **medido** p50 16,8 ms / p95 39,5 ms;
-**≈ 32–80 ms hasta el PLC** sumando captura y PLC estimados; presupuesto < 100 ms.
+Idéntica a Azure §10 (el camino crítico no toca la nube): pipeline de visión **medido** p50 18,0 ms / p95 24,6 ms;
+**≈ 33–65 ms hasta el PLC** sumando captura y PLC estimados; presupuesto < 100 ms.
 
 ## 11. Costos (resumen)
 
