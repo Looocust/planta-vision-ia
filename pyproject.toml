@@ -1,0 +1,42 @@
+[project]
+name = "planta-vision-ia"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.162.0",
+    "httpx>=0.28.1",
+    "joblib>=1.6.0",
+    "langchain>=1.4.7",
+    "langchain-core>=1.7.0",
+    "langchain-google-genai>=4.4.2",
+    "langgraph>=1.2.17",
+    "markdown>=3.11.2",
+    "matplotlib>=3.11.2",
+    "mlflow>=3.17.2",
+    "numpy>=2.5.4",
+    "opencv-python-headless>=5.0.0.93",
+    "openpyxl>=3.1.5",
+    "pandas>=3.1.0",
+    "pillow>=13.0.0",
+    "pydantic>=2.14.1",
+    "pydantic-settings>=2.16.1",
+    "python-multipart>=0.0.32",
+    "pyyaml>=6.0.3",
+    "reportlab>=5.1.0",
+    "scikit-image>=0.26.0",
+    "scikit-learn>=1.9.1",
+    "seaborn>=0.13.2",
+    "torch>=2.14.1",
+    "torchvision>=0.29.1",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.4.0",
+    "jupyter>=1.1.1",
+    "nbconvert>=7.17.2",
+    "nbformat>=5.11.1",
+    "pytest>=9.1.1",
+]
