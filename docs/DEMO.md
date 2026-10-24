@@ -24,7 +24,7 @@ En http://localhost:8001/docs abre `POST /v1/predict` → *Try it out* y sube ca
 
 | Imagen | Qué debería verse | Qué decir |
 |---|---|---|
-| `01_conocido_ruido_obj5_35.png` | `ACT`, obj5, ~35°, `robot_command: PICK, rotate_deg -35` | "Imagen con ruido de cámara. Identifica el objeto, el ángulo y la incertidumbre, y le da al robot una orden concreta. Unos 18 ms, sin internet." |
+| `01_conocido_ruido_obj5_35.png` | `ACT`, obj5, ~35°, `robot_command: PICK, rotate_deg -35` | "Imagen con ruido de cámara. Identifica el objeto, el ángulo y la incertidumbre, y le da al robot una orden concreta. Unos 14 ms, sin internet." |
 | `02_vista_intermedia_obj23_35.png` | `ACT`, obj23, ~36° | "Una vista que no existe en las referencias: interpola el ángulo." |
 | `03_simetrico_obj47.png` | `REVIEW`, `rotational_ambiguity`, robot `HOLD` | "Es un objeto simétrico: su ángulo no se puede saber. No inventa; manda a revisión." |
 | `04_oscura_obj12.png` | `REJECT`, `image_quality` | "Compuerta de calidad determinística, antes del modelo." |

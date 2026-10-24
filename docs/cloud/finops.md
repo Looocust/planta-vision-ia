@@ -14,7 +14,7 @@ Modelo con fórmulas vivas: [`finops_model.xlsx`](finops_model.xlsx) — se rege
 | **Sensibilidad** | % automatizado 73,7/74,9/80/90/90,3/95/99 + punto de equilibrio (también escala el almacenamiento de imágenes), estaciones 1/5/20, conversaciones/día 20/60/200/1000 (la columna "todo al modelo grande" lee las celdas de precio gpt-4.1) |
 | **Fuentes** | Una fila por consulta de precio: clave, región, precio, unidad, **medidor / usagetype**, id de medidor o SKU, producto, fecha y la **URL de consulta exacta**. Snapshot en `docs/cloud/precios_snapshot.json` |
 
-`pct_automatizado` = **90,3% (medido)**: cobertura ACT en test de `vision-1.0.1`; el 73,7-74,9% con desconocidos está en *Sensibilidad*.
+`pct_automatizado` = **90,3% (medido)**: cobertura ACT en test de `vision-1.0.1` (idéntica en la `vision-1.0.2` desplegada); el 73,7-74,9% con desconocidos está en *Sensibilidad*.
 `fraccion_atencion` es la fracción de las horas de operación de la estación que todavía requiere a una persona
 (10% → ≈ 60 h pagadas/mes con cobertura); no es un FTE.
 
@@ -26,7 +26,7 @@ Defender for Storage y transacciones de almacenamiento. Para la UE, si no hay pr
 ## 2. Resultados con los supuestos base (1 planta, 1 estación)
 
 **Qué es supuesto y qué no:** `pct_automatizado` = **90,3% medido** (cobertura ACT en test, protocolo A, modelo
-`vision-1.0.1`, 0,09% de error entre los ACT). Con objetos desconocidos mezclados (variante D) la cobertura medida baja a
+`vision-1.0.1` y `vision-1.0.2`, 0,09% de error entre los ACT). Con objetos desconocidos mezclados (variante D) la cobertura medida baja a
 **73,7-74,9%** (filas propias en *Sensibilidad*). Costos laborales, throughput, CAPEX y volúmenes del agente son
 **supuestos** editables. Los precios de nube marcados "API verificada" son **precios de lista reales** consultados el
 2026-10-24. Colombia usa jornada de 42 h/semana (vigente desde el 15-jul-2026).

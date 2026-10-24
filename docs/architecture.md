@@ -25,7 +25,7 @@ modelo no resuelva**.
 
 **Por qué así:**
 - **Latencia:** un viaje de ida y vuelta a la nube (60–150 ms + jitter) no aporta nada y añade un punto de falla. El
-  pipeline clásico completo (`vision-1.0.1`) tarda p50 18,0 ms / p95 24,6 ms por imagen en CPU de portátil (medido, `docs/report/results.json`).
+  pipeline clásico completo (`vision-1.0.2`) tarda p50 13,6 ms / p95 22,6 ms por imagen en CPU de portátil (medido, `docs/report/results.json`).
 - **Costo:** inferencia local = costo fijo de un PC; en la nube serían millones de llamadas al mes.
 - **Riesgo:** un LLM puede equivocarse o ser manipulado por texto (inyección de prompt). Por eso el LLM **propone**
   y el código **dispone**: el robot nunca recibe un ángulo dudoso (si la decisión no es `ACT`, el comando es `HOLD`)
@@ -72,7 +72,7 @@ Detalle: [Azure](cloud/azure_architecture.md) · [AWS](cloud/aws_architecture.md
 
 ## 6. Caso de negocio: un rango, no un número (supuestos editables en el xlsx)
 
-El caso de negocio se presenta como **rango** entre dos coberturas **medidas** de `vision-1.0.1`; ninguna de las dos es
+El caso de negocio se presenta como **rango** entre dos coberturas **medidas** de `vision-1.0.1` (la `vision-1.0.2` desplegada da 90,3% y 73,6%, prácticamente iguales); ninguna de las dos es
 todavía el número real de planta.
 
 '''+RANGE_TABLE+'''

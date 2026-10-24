@@ -38,7 +38,7 @@ sequenceDiagram
             DEC-->>Q: (solo muestra ~2% para auditoría)
         end
     end
-    Note over CAM,PLC: Pipeline de visión medido p50 18,0 ms / p95 24,6 ms. Total hasta el PLC ≈ 33-65 ms<br/>(presupuesto < 100 ms) vs ciclo de ~6 s por objeto. El robot NUNCA recibe un ángulo dudoso.
+    Note over CAM,PLC: Pipeline de visión medido p50 13,6 ms / p95 22,6 ms. Total hasta el PLC ≈ 33-65 ms<br/>(presupuesto < 100 ms) vs ciclo de ~6 s por objeto. El robot NUNCA recibe un ángulo dudoso.
     Q-->>H: Caso visible en la UI de revisión / en el chat del agente
     H->>Q: Etiqueta correcta + ángulo (o descarte) → dato para reentrenar
 ```
@@ -46,7 +46,7 @@ sequenceDiagram
 | Paso | Dónde | ¿Determinista? | Latencia estimada |
 |---|---|---|---|
 | Captura | Cámara | Sí | 10–20 ms (estimado: exposición + transferencia GigE/USB3) |
-| Pipeline de visión completo (calidad + características + clase + ángulo + decisión) | PC de borde | Sí | **Medido (vision-1.0.1): p50 18,0 ms · p95 24,6 ms · media 16,8 ms** |
+| Pipeline de visión completo (calidad + características + clase + ángulo + decisión) | PC de borde | Sí | **Medido (vision-1.0.2): p50 13,6 ms · p95 22,6 ms · media 15,2 ms** |
 | Envío al PLC | Red OT local | Sí | 5–20 ms (estimado) |
 | **Total hasta el PLC** | | | **≈ 33–65 ms; presupuesto < 100 ms** |
 

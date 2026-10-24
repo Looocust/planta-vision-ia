@@ -106,8 +106,8 @@ Las condiciones más fuertes que las del entrenamiento están reportadas tal cua
 | Modelo | Qué es | Error cuando actúa (A / C / D mixto) | Latencia por imagen | Tamaño |
 |---|---|---|---|---|
 | Baseline | Comparar píxeles crudos (1-NN), siempre actúa | 2,4% / **25,7%** / **20,0%** | 0,3 ms (en lote) | — |
-| **Clásico (producción)** | HSV + HOG + LBP + Hu → PCA → Regresión Logística | **0,09%** / no actúa / 0,93% | p50 **18 ms** en CPU | 17,6 MB |
-| Referencia moderna | ResNet18 preentrenada (congelada) + misma receta, aumentación y regla de riesgo | No habilita ACT en A ni en D variante: su riesgo mínimo en validación es 3,3–3,6% (límite 2%) | ~27 ms en CPU, solo el embedding | 44,7 MB de pesos + PyTorch |
+| **Clásico (producción)** | HSV + HOG + LBP + Hu → PCA → Regresión Logística | **0,09%** / no actúa / 0,93% | p50 **13,6 ms** en CPU | 17,6 MB |
+| Referencia moderna | ResNet18 preentrenada (congelada) + misma receta, aumentación y regla de riesgo | No habilita ACT en A ni en D variante: su riesgo mínimo en validación es 3,3–3,6% (límite 2%) | ~28 ms en CPU, solo el embedding | 44,7 MB de pesos + PyTorch |
 
 **Conclusión:** la comparación es justa, porque ResNet usa la misma aumentación, validación y regla. Clasifica un poco mejor (99,8% frente a 99,0% en validación), pero **el problema es el ángulo**. Sus embeddings son más invariantes a la rotación: con la clase correcta, falla por más de 10° en el **16,8%** de las vistas, frente al **7,7%** del clásico. Para este problema, donde el ángulo importa tanto como la clase, el clásico es mejor; además pesa menos y no necesita PyTorch. La brecha **no justifica** su costo.
 
@@ -229,7 +229,7 @@ Las cifras salen de [`docs/cloud/finops_model.xlsx`](cloud/finops_model.xlsx), q
 
 | Pregunta | Idea para responder |
 |---|---|
-| ¿Por qué ML clásico y no deep learning? | La prueba lo exige, y además lo medí con trato justo: ResNet18 clasifica un poco mejor, pero sus embeddings son invariantes a la rotación y **se equivoca más en el ángulo** (16,8% frente a 7,7% de errores >10°), así que no cumple la regla de riesgo. El clásico corre en CPU en ~18 ms y está calibrado. |
+| ¿Por qué ML clásico y no deep learning? | La prueba lo exige, y además lo medí con trato justo: ResNet18 clasifica un poco mejor, pero sus embeddings son invariantes a la rotación y **se equivoca más en el ángulo** (16,8% frente a 7,7% de errores >10°), así que no cumple la regla de riesgo. El clásico corre en CPU en ~14 ms y está calibrado. |
 | ¿Cómo validaste que no te estabas engañando? | Un segundo modelo de otro proveedor (Codex) auditó cada reto contra el texto de la prueba. Encontró un baseline mal contado, un bug con umbrales NaN y una suplantación de aprobador, y todo se corrigió. Los informes están en `docs/validacion/`. |
 | ¿Qué pasa con objetos casi idénticos (obj61 vs obj92)? | Era la debilidad principal (6,4% de desconocidos a ACT). Agregué una segunda compuerta de novedad y bajó a 0,97%, sin empeorar el resto. En planta, para SKU casi idénticos, sumaría un dato complementario (código de barras, peso). |
 | ¿Funciona con ruido real de cámara? | La versión 1.0.0 no funcionaba; lo detecté en la prueba integral. La 1.0.1 agregó preprocesado y aumentación (la 1.0.2 la mantiene), y la robustez está medida: error de 1,1% con ruido σ=4. Con ruido extremo, la 1.0.2 es más conservadora: rechaza en vez de actuar. |

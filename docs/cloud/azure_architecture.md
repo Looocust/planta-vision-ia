@@ -356,7 +356,7 @@ La clave: **la nube puede fallar sin parar la producción**. Por eso no se paga 
 | Etapa | Estimado | Comentario |
 |---|---|---|
 | Captura (exposición + transferencia) | 10–20 ms | Depende de cámara e interfaz |
-| Pipeline de visión completo (calidad + características + clase + ángulo + decisión) | **p50 18,0 ms · p95 24,6 ms · media 16,8 ms** | **Medido** en CPU de portátil con `vision-1.0.1`, 1 imagen, `docs/report/results.json` (`cost.latency`) |
+| Pipeline de visión completo (calidad + características + clase + ángulo + decisión) | **p50 13,6 ms · p95 22,6 ms · media 15,2 ms** | **Medido** en CPU de portátil con `vision-1.0.2`, 1 imagen, `docs/report/results.json` (`cost.latency`) |
 | Envío al PLC (OPC UA, red local) | 5–20 ms | Estimado |
 | **Total hasta el PLC** | **≈ 33–65 ms (presupuesto: < 100 ms)** | Frente a un ciclo de ~6 s por objeto. Con p95 de visión, el total queda < 65 ms |
 | *Alternativa en la nube* | +60–150 ms de ida y vuelta + jitter + caídas | **Rechazada**: no aporta y añade un punto de falla |
