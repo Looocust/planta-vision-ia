@@ -9,3 +9,4 @@ mlflow.db
 .ipynb_checkpoints/
 .pytest_cache/
 .DS_Store
+docs/validacion/.*.log
