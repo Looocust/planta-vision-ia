@@ -142,7 +142,7 @@ health_status() {
 }
 
 wait_health() {
-  local name="$1" url="$2" timeout="${3:-90}" i=0 st=""
+  local name="$1" url="$2" timeout="${3:-${HEALTH_TIMEOUT:-300}}" i=0 st=""
   while true; do
     st="$(health_status "$url" || true)"
     [[ "$st" == "ok" ]] && break
