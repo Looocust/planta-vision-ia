@@ -16,6 +16,8 @@ Prueba técnica AI Engineer (Indra / Minsait). Este sistema sustituye la tarea m
 | 10 | Servicio desplegado (local, un comando) | 4 | `make up` (sección siguiente) · [`docker-compose.yml`](docker-compose.yml) |
 | 12 | Arquitecturas Azure (y AWS) + modelo de costos | 6 | [`docs/cloud/azure_architecture.md`](docs/cloud/azure_architecture.md) · [`docs/cloud/aws_architecture.md`](docs/cloud/aws_architecture.md) · [`docs/cloud/azure_vs_aws.md`](docs/cloud/azure_vs_aws.md) · [`docs/cloud/finops.md`](docs/cloud/finops.md) · hoja [`docs/cloud/finops_model.xlsx`](docs/cloud/finops_model.xlsx) |
 
+**Plan de proyecto y equipo:** [`docs/plan_proyecto.md`](docs/plan_proyecto.md) cubre las fases con criterios go/no-go (piloto en sombra → canario → producción), el equipo y los roles, los riesgos y los KPIs.
+
 **Documentos de soporte:**
 - **Arquitectura y diagramas:** [`docs/architecture.md`](docs/architecture.md) y los diagramas en [`docs/diagrams/`](docs/diagrams/): la arquitectura, la secuencia imagen → robot, el flujo agéntico con aprobación humana y el alta de SKU.
 - **Diseño del agente:** [`docs/agent_design.md`](docs/agent_design.md) explica el patrón, las alternativas descartadas, el estado, la memoria, el contexto y el aislamiento.

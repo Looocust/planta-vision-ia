@@ -177,7 +177,7 @@ Máximo de pasos por turno, máximo de llamadas a tools, detección de la misma 
 ## 5. Reto 4 – Despliegue
 - Dos servicios separados: **API de visión** (puerto 8001) y **agente** (puerto 8002).
 - Un solo comando: `make up` (o `./scripts/run_local.sh`). También hay `docker-compose.yml`.
-- Configuración en `.env` (nunca en el código), modelo versionado en `models/vision-1.0.0/`.
+- Configuración en `.env` (nunca en el código), modelo versionado en `models/vision-1.0.1/` (con hash del modelo, hash de datos, commit y snapshot de código).
 
 ## 6. Reto 6 – Azure y AWS (explicado fácil)
 
