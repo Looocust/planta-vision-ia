@@ -1,0 +1,39 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "status": {
+      "default": "pending",
+      "enum": [
+        "pending",
+        "labeled"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "line_id": {
+      "anyOf": [
+        {
+          "pattern": "^P\\d-L\\d$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Línea de la misma planta (opcional)",
+      "title": "Line Id"
+    },
+    "limit": {
+      "default": 10,
+      "maximum": 25,
+      "minimum": 1,
+      "title": "Limit",
+      "type": "integer"
+    }
+  },
+  "title": "ListReviewQueueIn",
+  "type": "object",
+  "x-kind": "read",
+  "x-side-effects": "ninguno"
+}

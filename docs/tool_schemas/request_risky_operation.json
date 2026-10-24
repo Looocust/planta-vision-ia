@@ -1,0 +1,124 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "operation": {
+      "description": "Operación riesgosa a solicitar",
+      "enum": [
+        "set_threshold",
+        "pause_line",
+        "resume_line",
+        "manual_angle",
+        "promote_model"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
+    "justification": {
+      "description": "Motivo de negocio",
+      "maxLength": 500,
+      "minLength": 10,
+      "title": "Justification",
+      "type": "string"
+    },
+    "line_id": {
+      "anyOf": [
+        {
+          "pattern": "^P\\d-L\\d$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Línea objetivo (misma planta)",
+      "title": "Line Id"
+    },
+    "min_class_confidence": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "set_threshold: nuevo umbral de confianza",
+      "title": "Min Class Confidence"
+    },
+    "max_angle_uncertainty_deg": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "set_threshold: nueva incertidumbre máx.",
+      "title": "Max Angle Uncertainty Deg"
+    },
+    "unknown_distance": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "set_threshold: nueva distancia de desconocido",
+      "title": "Unknown Distance"
+    },
+    "angle_deg": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "manual_angle: ángulo a enviar al robot",
+      "title": "Angle Deg"
+    },
+    "object_label": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "manual_angle: clase del objeto (obj1..obj100)",
+      "title": "Object Label"
+    },
+    "candidate_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "promote_model: versión candidata en staging",
+      "title": "Candidate Version"
+    }
+  },
+  "required": [
+    "operation",
+    "justification"
+  ],
+  "title": "RequestRiskyOperationIn",
+  "type": "object",
+  "x-kind": "write",
+  "x-side-effects": "crea approval pendiente; idempotente por operación+parámetros+solicitante"
+}

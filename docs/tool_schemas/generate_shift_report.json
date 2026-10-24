@@ -1,0 +1,47 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "shift": {
+      "enum": [
+        "turno_1",
+        "turno_2",
+        "turno_3"
+      ],
+      "title": "Shift",
+      "type": "string"
+    },
+    "date": {
+      "anyOf": [
+        {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Date"
+    },
+    "line_id": {
+      "anyOf": [
+        {
+          "pattern": "^P\\d-L\\d$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Line Id"
+    }
+  },
+  "required": [
+    "shift"
+  ],
+  "title": "GenerateShiftReportIn",
+  "type": "object",
+  "x-kind": "write",
+  "x-side-effects": "upsert en shift_reports por planta+línea+turno"
+}

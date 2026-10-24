@@ -1,0 +1,54 @@
+# RBAC del asistente agéntico. Fuente de verdad DETERMINISTA: el LLM nunca decide permisos.
+# Simula el IdP: usuarios demo -> rol + plantas autorizadas.
+roles:
+  operator:
+    description: Operador de línea (solo consulta e inspección)
+    tools: [inspect_images, enqueue_for_review, get_line_metrics, get_camera_health, search_procedures, save_user_preference]
+    can_request: []
+    can_approve: []
+  supervisor:
+    description: Supervisor de turno
+    tools: [inspect_images, enqueue_for_review, list_review_queue, submit_review_label, get_line_metrics,
+            get_camera_health, get_model_versions, get_robot_events, search_procedures, list_tickets,
+            create_ticket, escalate_ticket, request_risky_operation, generate_shift_report, save_user_preference]
+    can_request: [pause_line, resume_line, manual_angle]
+    can_approve: [pause_line, resume_line, manual_angle]
+  quality:
+    description: Calidad
+    tools: [inspect_images, enqueue_for_review, list_review_queue, submit_review_label, get_line_metrics,
+            get_camera_health, get_model_versions, get_robot_events, search_procedures, list_tickets,
+            create_ticket, request_risky_operation, generate_shift_report, stage_new_sku, save_user_preference]
+    can_request: [set_threshold]
+    can_approve: [set_threshold, manual_angle, promote_model]
+  maintenance:
+    description: Mantenimiento
+    tools: [get_line_metrics, get_camera_health, get_robot_events, search_procedures, list_tickets,
+            create_ticket, escalate_ticket, request_risky_operation, inspect_images, save_user_preference]
+    can_request: [pause_line, resume_line]
+    can_approve: []
+  ml_engineer:
+    description: Ingeniero de ML
+    tools: [inspect_images, enqueue_for_review, list_review_queue, submit_review_label, get_line_metrics,
+            get_camera_health, get_model_versions, get_robot_events, search_procedures, list_tickets,
+            create_ticket, stage_new_sku, request_risky_operation, save_user_preference]
+    can_request: [set_threshold, promote_model]
+    can_approve: [set_threshold]
+  plant_manager:
+    description: Gerente de planta
+    tools: [inspect_images, list_review_queue, get_line_metrics, get_camera_health, get_model_versions,
+            get_robot_events, search_procedures, list_tickets, create_ticket, escalate_ticket,
+            request_risky_operation, generate_shift_report, save_user_preference]
+    can_request: [set_threshold, pause_line, resume_line, manual_angle, promote_model]
+    can_approve: [set_threshold, pause_line, resume_line, manual_angle, promote_model]
+
+# Usuarios demo (simulan el directorio corporativo). El rol enviado por el cliente debe coincidir.
+users:
+  u_op_p1:   {role: operator,      plants: [P1], display: "Operador P1"}
+  u_sup_p1:  {role: supervisor,    plants: [P1], display: "Supervisora turno P1"}
+  u_sup2_p1: {role: supervisor,    plants: [P1], display: "Supervisor relevo P1"}
+  u_qa_p1:   {role: quality,       plants: [P1], display: "Calidad P1"}
+  u_mnt_p1:  {role: maintenance,   plants: [P1], display: "Mantenimiento P1"}
+  u_ml:      {role: ml_engineer,   plants: [P1, P2], display: "ML engineer"}
+  u_pm_p1:   {role: plant_manager, plants: [P1], display: "Gerente planta P1"}
+  u_sup_p2:  {role: supervisor,    plants: [P2], display: "Supervisor P2"}
+  u_pm_p2:   {role: plant_manager, plants: [P2], display: "Gerente planta P2"}

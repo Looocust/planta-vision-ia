@@ -1,0 +1,39 @@
+# Políticas deterministas (no las decide el LLM).
+risky_operations:
+  set_threshold:
+    description: Cambiar umbrales del servicio de visión para la línea
+    bounds:
+      min_class_confidence: [0.50, 0.95]
+      max_angle_uncertainty_deg: [2.0, 30.0]
+      unknown_distance: [5.0, 60.0]       # escala del servicio real (distancia de novedad)
+    max_relative_change: 0.30        # ningún umbral cambia más de 30 % por solicitud
+    allowed_line_states: [running, paused]
+  pause_line:
+    description: Pausar la línea
+    allowed_line_states: [running]
+  resume_line:
+    description: Reanudar la línea
+    allowed_line_states: [paused]
+  manual_angle:
+    description: Enviar ángulo manual al robot
+    angle_range_deg: [0.0, 359.9]
+    allowed_line_states: [paused]     # solo con la línea pausada (modo manual seguro)
+    requires_known_label: true
+  promote_model:
+    description: Promover una versión candidata (staging) a producción
+    min_accuracy: 0.90
+    max_accuracy_drop_vs_prod: 0.01
+approvals:
+  ttl_minutes: 60
+  approver_must_differ_from_requester: true
+  same_plant_required: true
+sku_onboarding:
+  min_views: 12                    # alineado con el servicio de visión (too_few_views < 12)
+  min_angle_coverage_deg: 270      # cobertura angular mínima (max-min de ángulos únicos)
+  max_views: 72
+uploads:
+  max_bytes: 5242880
+  retention_days: 30
+memory:
+  preference_ttl_days: 30
+  max_preferences_per_user: 20

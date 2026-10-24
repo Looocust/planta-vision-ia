@@ -1,0 +1,30 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "image_ids": {
+      "description": "IDs de imágenes subidas en esta sesión (formato img_xxxxxxxxxxxx)",
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 6,
+      "minItems": 1,
+      "title": "Image Ids",
+      "type": "array"
+    },
+    "top_k": {
+      "default": 3,
+      "description": "Vistas similares a devolver como evidencia",
+      "maximum": 5,
+      "minimum": 1,
+      "title": "Top K",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "image_ids"
+  ],
+  "title": "InspectImagesIn",
+  "type": "object",
+  "x-kind": "read",
+  "x-side-effects": "registra la inspección en el log (sin efecto en la línea)"
+}

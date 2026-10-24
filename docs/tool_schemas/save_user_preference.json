@@ -1,0 +1,30 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "key": {
+      "enum": [
+        "idioma_respuesta",
+        "formato_respuesta",
+        "linea_habitual",
+        "nivel_detalle",
+        "unidades"
+      ],
+      "title": "Key",
+      "type": "string"
+    },
+    "value": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Value",
+      "type": "string"
+    }
+  },
+  "required": [
+    "key",
+    "value"
+  ],
+  "title": "SaveUserPreferenceIn",
+  "type": "object",
+  "x-kind": "write",
+  "x-side-effects": "upsert en user_memory"
+}

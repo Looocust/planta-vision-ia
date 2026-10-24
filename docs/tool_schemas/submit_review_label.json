@@ -1,0 +1,45 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "case_id": {
+      "pattern": "^RC-[A-Z0-9]{4,8}$",
+      "title": "Case Id",
+      "type": "string"
+    },
+    "label": {
+      "description": "Etiqueta confirmada por el humano (obj1..obj100)",
+      "pattern": "^obj([1-9]|[1-9][0-9]|100)$",
+      "title": "Label",
+      "type": "string"
+    },
+    "angle_deg": {
+      "description": "Ángulo confirmado por el humano en grados [0, 360)",
+      "exclusiveMaximum": 360,
+      "minimum": 0,
+      "title": "Angle Deg",
+      "type": "number"
+    },
+    "comment": {
+      "anyOf": [
+        {
+          "maxLength": 300,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Comment"
+    }
+  },
+  "required": [
+    "case_id",
+    "label",
+    "angle_deg"
+  ],
+  "title": "SubmitReviewLabelIn",
+  "type": "object",
+  "x-kind": "write",
+  "x-side-effects": "marca caso + inserta en retraining_dataset; idempotente por case_id"
+}

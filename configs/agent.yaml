@@ -1,0 +1,43 @@
+# Configuración del agente (sin secretos). Valores sobreescribibles por env donde se indica.
+llm:
+  provider_env: LLM_PROVIDER        # por defecto google_genai
+  model_env: LLM_MODEL
+  default_provider: google_genai
+  default_model: gemini-3.1-flash-lite   # free tier: gemini-3-flash-preview solo ~20 req/día
+  temperature: 0.0
+  thinking_level: low               # gemini-3.x: low|medium|high (env LLM_THINKING_LEVEL)
+  max_retries: 4                    # reintentos ante 429/5xx con backoff exponencial
+  backoff_base_s: 2.0
+  min_interval_s_env: LLM_MIN_INTERVAL_S
+limits:
+  max_steps_per_turn: 8             # invocaciones del LLM por turno
+  max_tool_calls_per_turn: 12
+  max_identical_calls: 1            # una llamada idéntica (tool+args) repetida en el turno se bloquea
+  max_blocked_calls_per_turn: 4     # llamadas rechazadas por guardas antes de cortar
+  turn_timeout_s: 120
+  tool_timeout_s: 20
+  token_budget_per_turn: 120000     # tokens de entrada+salida por turno
+  max_tool_output_chars: 3500
+context:
+  max_history_tokens: 6000          # recorte del historial conversacional enviado al LLM
+  keep_turn_summaries: 10
+vision:
+  base_url_env: VISION_API_URL
+  default_base_url: http://localhost:8001
+  admin_token_env: VISION_ADMIN_TOKEN
+  timeout_s: 5.0
+  retries: 2
+  backoff_s: 0.4
+  circuit_failure_threshold: 3
+  circuit_reset_s: 30
+plant:
+  db_path_env: PLANT_DB_PATH
+  default_db_path: data/runtime/plant.db
+  checkpoint_db_env: AGENT_CHECKPOINT_DB
+  default_checkpoint_db: data/runtime/agent_checkpoints.db
+  uploads_dir: data/runtime/uploads
+  sim_now: "2026-10-24T07:30:00"    # reloj simulado de planta (determinista)
+shifts:
+  turno_1: ["06:00", "14:00"]
+  turno_2: ["14:00", "22:00"]
+  turno_3: ["22:00", "06:00"]

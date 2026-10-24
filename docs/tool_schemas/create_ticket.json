@@ -1,0 +1,72 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "title": {
+      "maxLength": 120,
+      "minLength": 5,
+      "title": "Title",
+      "type": "string"
+    },
+    "description": {
+      "description": "Diagnóstico propuesto, evidencia (datos) y citas de SOP",
+      "maxLength": 2000,
+      "minLength": 10,
+      "title": "Description",
+      "type": "string"
+    },
+    "severity": {
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "category": {
+      "enum": [
+        "vision",
+        "mechanical",
+        "vacuum",
+        "electrical",
+        "model",
+        "other"
+      ],
+      "title": "Category",
+      "type": "string"
+    },
+    "line_id": {
+      "anyOf": [
+        {
+          "pattern": "^P\\d-L\\d$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Line Id"
+    },
+    "citations": {
+      "description": "Citas SOP usadas, formato 'SOP-XXX-NN §SEC'",
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 8,
+      "title": "Citations",
+      "type": "array"
+    }
+  },
+  "required": [
+    "title",
+    "description",
+    "severity",
+    "category"
+  ],
+  "title": "CreateTicketIn",
+  "type": "object",
+  "x-kind": "write",
+  "x-side-effects": "inserta ticket; idempotency_key"
+}

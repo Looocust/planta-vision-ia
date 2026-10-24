@@ -1,0 +1,81 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "shift": {
+      "anyOf": [
+        {
+          "enum": [
+            "turno_1",
+            "turno_2",
+            "turno_3"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Turno (turno_1 06-14, turno_2 14-22, turno_3 22-06). Sin fecha = ocurrencia más reciente",
+      "title": "Shift"
+    },
+    "date": {
+      "anyOf": [
+        {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Fecha de inicio del turno",
+      "title": "Date"
+    },
+    "start": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Inicio ISO (alternativa a shift), p.ej. 2026-10-24T02:00:00",
+      "title": "Start"
+    },
+    "end": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Fin ISO",
+      "title": "End"
+    },
+    "line_id": {
+      "anyOf": [
+        {
+          "pattern": "^P\\d-L\\d$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Línea de la misma planta (por defecto la de la sesión)",
+      "title": "Line Id"
+    }
+  },
+  "title": "GetLineMetricsIn",
+  "type": "object",
+  "x-kind": "read",
+  "x-side-effects": "ninguno"
+}

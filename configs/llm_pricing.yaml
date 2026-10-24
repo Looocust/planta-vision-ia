@@ -1,0 +1,14 @@
+# USD por 1M tokens (precios públicos de referencia de pago; en free tier el costo real es 0).
+# Verificar contra la página oficial antes de usar para FinOps.
+currency: USD
+models:
+  gemini-2.5-flash:      {input_per_mtok: 0.30, output_per_mtok: 2.50}
+  gemini-2.5-flash-lite: {input_per_mtok: 0.10, output_per_mtok: 0.40}
+  gemini-2.5-pro:        {input_per_mtok: 1.25, output_per_mtok: 10.00}
+  gemini-2.0-flash:      {input_per_mtok: 0.10, output_per_mtok: 0.40}
+  gemini-3-flash-preview: {input_per_mtok: 0.50, output_per_mtok: 3.00, verified: false}
+  # Modelos 3.x: precio NO verificado al momento de escribir; se asume tarifa de referencia flash.
+  gemini-3.5-flash:      {input_per_mtok: 0.50, output_per_mtok: 3.00, verified: false}
+  gemini-3.1-flash-lite: {input_per_mtok: 0.10, output_per_mtok: 0.40, verified: false}
+  fake:                  {input_per_mtok: 0.0, output_per_mtok: 0.0}
+default: {input_per_mtok: 0.30, output_per_mtok: 2.50}

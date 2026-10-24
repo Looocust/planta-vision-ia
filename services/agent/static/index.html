@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Copiloto de línea</title>
+<style>
+  :root { --bg:#f6f7f9; --fg:#1d2330; --muted:#667085; --card:#fff; --acc:#2557d6; --warn:#b54708; --line:#e4e7ec; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+  header { padding:10px 16px; background:var(--card); border-bottom:1px solid var(--line); display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  header h1 { font-size:16px; margin:0 12px 0 0; }
+  select, input, button, textarea { font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; }
+  button { background:var(--acc); color:#fff; border:none; cursor:pointer; }
+  button.secondary { background:#fff; color:var(--fg); border:1px solid var(--line); }
+  main { display:grid; grid-template-columns: 1fr 320px; gap:12px; padding:12px 16px; max-width:1200px; margin:0 auto; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+  #log { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px; height:62vh; overflow:auto; }
+  .msg { margin:8px 0; white-space:pre-wrap; }
+  .user { color:var(--acc); }
+  .meta { color:var(--muted); font-size:12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:12px; }
+  .ap { border-left:3px solid var(--warn); padding-left:8px; margin:8px 0; }
+  form { display:flex; gap:8px; margin-top:8px; }
+  textarea { flex:1; min-height:44px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Copiloto operativo</h1>
+  <label>Usuario <select id="user"></select></label>
+  <label>Planta <select id="plant"><option>P1</option><option>P2</option></select></label>
+  <label>Línea <select id="line"><option>P1-L1</option><option>P1-L2</option><option>P2-L1</option></select></label>
+  <label>Sesión <input id="session" size="10"></label>
+</header>
+<main>
+  <section>
+    <div id="log"></div>
+    <form id="f">
+      <textarea id="msg" placeholder="Ej.: ¿Por qué subieron los rechazos a las 3 a. m.?"></textarea>
+      <button>Enviar</button>
+    </form>
+    <div class="meta">Imágenes adjuntas: <span id="imgs">ninguna</span></div>
+  </section>
+  <aside>
+    <div class="card">
+      <b>Subir imágenes</b><br>
+      <input type="file" id="file" accept="image/png,image/jpeg" multiple>
+    </div>
+    <div class="card">
+      <b>Aprobaciones pendientes</b>
+      <button class="secondary" id="refresh" type="button">Actualizar</button>
+      <div id="aps"></div>
+    </div>
+  </aside>
+</main>
+<script>
+const USERS = {u_op_p1:"operator",u_sup_p1:"supervisor",u_sup2_p1:"supervisor",u_qa_p1:"quality",u_mnt_p1:"maintenance",
+  u_ml:"ml_engineer",u_pm_p1:"plant_manager",u_sup_p2:"supervisor",u_pm_p2:"plant_manager"};
+const $ = id => document.getElementById(id);
+for (const [u,r] of Object.entries(USERS)) { const o=document.createElement("option"); o.value=u; o.textContent=`${u} (${r})`; $("user").appendChild(o); }
+$("user").value = "u_sup_p1";
+$("session").value = "web-" + Math.random().toString(36).slice(2,8);
+let pending = [];
+const who = () => ({user_id:$("user").value, role:USERS[$("user").value], plant_id:$("plant").value, line_id:$("line").value});
+function add(text, cls, meta) {  // textContent: la salida del LLM nunca se interpreta como HTML
+  const d=document.createElement("div"); d.className="msg "+(cls||""); d.textContent=text; $("log").appendChild(d);
+  if (meta) { const m=document.createElement("div"); m.className="meta"; m.textContent=meta; $("log").appendChild(m); }
+  $("log").scrollTop = 1e9;
+}
+$("file").onchange = async e => {
+  for (const f of e.target.files) {
+    const fd = new FormData(); fd.append("file", f); const w=who();
+    for (const k of ["plant_id","line_id","user_id","role"]) fd.append(k, w[k]);
+    const r = await fetch("/v1/uploads",{method:"POST",body:fd}); const j=await r.json();
+    if (r.ok) pending.push(j.image_id); else add("Error al subir: "+JSON.stringify(j.detail), "meta");
+  }
+  $("imgs").textContent = pending.join(", ") || "ninguna";
+};
+$("f").onsubmit = async e => {
+  e.preventDefault(); const text=$("msg").value.trim(); if(!text) return;
+  add("> "+text, "user"); $("msg").value="";
+  const body = {...who(), session_id:$("session").value, message:text, image_ids:pending};
+  pending=[]; $("imgs").textContent="ninguna";
+  const r = await fetch("/v1/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  const j = await r.json();
+  if (!r.ok) { add("Error: "+JSON.stringify(j.detail), "meta"); return; }
+  const tools = (j.tool_calls||[]).map(t=>`${t.tool}:${t.status}${t.reason?"("+t.reason+")":""}`).join(", ");
+  add(j.reply, "", `tools: ${tools||"-"} · tokens ${j.usage.input_tokens}/${j.usage.output_tokens} · $${j.usage.cost_usd}`);
+  loadAps();
+};
+async function loadAps() {
+  const w=who(); const q=new URLSearchParams({plant_id:w.plant_id,user_id:w.user_id,role:w.role});
+  const r = await fetch("/v1/approvals?"+q); const box=$("aps"); box.textContent="";
+  if (!r.ok) return; const j=await r.json();
+  for (const a of j.pending) {
+    const d=document.createElement("div"); d.className="ap";
+    d.textContent = `${a.approval_id} · ${a.operation} ${a.params} · ${a.line_id} · por ${a.requested_by}: ${a.justification}`;
+    for (const dec of ["approve","reject"]) {
+      const b=document.createElement("button"); b.type="button"; b.textContent = dec==="approve"?"Aprobar":"Rechazar";
+      if (dec==="reject") b.className="secondary";
+      b.onclick = async () => {
+        const w=who(); const rr = await fetch(`/v1/approvals/${a.approval_id}`,{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({approver_id:w.user_id, role:w.role, decision:dec, comment:"desde UI"})});
+        const jj = await rr.json(); add(`[Aprobación ${a.approval_id}] ` + (rr.ok ? (jj.session_message || jj.status) : JSON.stringify(jj.detail)), "meta"); loadAps();
+      };
+      d.appendChild(document.createElement("br")); d.appendChild(b);
+    }
+    box.appendChild(d);
+  }
+  if (!j.pending.length) box.textContent = "Sin pendientes";
+}
+$("refresh").onclick = loadAps; loadAps();
+</script>
+</body>
+</html>

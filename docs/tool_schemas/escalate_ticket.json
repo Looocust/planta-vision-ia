@@ -1,0 +1,36 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "ticket_id": {
+      "pattern": "^TCK-[A-Z0-9]{4,8}$",
+      "title": "Ticket Id",
+      "type": "string"
+    },
+    "to_team": {
+      "enum": [
+        "mantenimiento_nivel_2",
+        "ingenieria_ml",
+        "calidad",
+        "gerencia_planta",
+        "proveedor"
+      ],
+      "title": "To Team",
+      "type": "string"
+    },
+    "reason": {
+      "maxLength": 500,
+      "minLength": 10,
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "ticket_id",
+    "to_team",
+    "reason"
+  ],
+  "title": "EscalateTicketIn",
+  "type": "object",
+  "x-kind": "write",
+  "x-side-effects": "actualiza ticket; idempotente si ya escalado al mismo equipo"
+}

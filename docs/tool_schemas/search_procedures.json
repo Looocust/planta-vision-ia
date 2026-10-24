@@ -1,0 +1,26 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "query": {
+      "description": "Consulta en lenguaje natural",
+      "maxLength": 300,
+      "minLength": 3,
+      "title": "Query",
+      "type": "string"
+    },
+    "k": {
+      "default": 4,
+      "maximum": 6,
+      "minimum": 1,
+      "title": "K",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "query"
+  ],
+  "title": "SearchProceduresIn",
+  "type": "object",
+  "x-kind": "read",
+  "x-side-effects": "ninguno"
+}

@@ -1,0 +1,40 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "sku": {
+      "description": "Identificador del nuevo SKU",
+      "pattern": "^[A-Za-z0-9_-]{3,32}$",
+      "title": "Sku",
+      "type": "string"
+    },
+    "image_ids": {
+      "description": "Vistas subidas en esta sesión",
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 72,
+      "minItems": 1,
+      "title": "Image Ids",
+      "type": "array"
+    },
+    "angles": {
+      "description": "Ángulo de cada vista (misma longitud)",
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 72,
+      "minItems": 1,
+      "title": "Angles",
+      "type": "array"
+    }
+  },
+  "required": [
+    "sku",
+    "image_ids",
+    "angles"
+  ],
+  "title": "StageNewSkuIn",
+  "type": "object",
+  "x-kind": "write",
+  "x-side-effects": "crea candidato en staging; idempotente por sku+imágenes"
+}

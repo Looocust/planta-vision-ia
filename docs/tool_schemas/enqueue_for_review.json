@@ -1,0 +1,32 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "image_id": {
+      "description": "Imagen ya inspeccionada en esta sesión",
+      "pattern": "^img_[a-f0-9]{12}$",
+      "title": "Image Id",
+      "type": "string"
+    },
+    "note": {
+      "anyOf": [
+        {
+          "maxLength": 300,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Nota para el revisor",
+      "title": "Note"
+    }
+  },
+  "required": [
+    "image_id"
+  ],
+  "title": "EnqueueForReviewIn",
+  "type": "object",
+  "x-kind": "write",
+  "x-side-effects": "crea caso en review_queue; idempotente por image_id"
+}

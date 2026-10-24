@@ -1,0 +1,60 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "line_id": {
+      "anyOf": [
+        {
+          "pattern": "^P\\d-L\\d$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Line Id"
+    },
+    "hours_back": {
+      "anyOf": [
+        {
+          "maximum": 48,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": 12,
+      "title": "Hours Back"
+    },
+    "start": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Start"
+    },
+    "end": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "End"
+    }
+  },
+  "title": "GetCameraHealthIn",
+  "type": "object",
+  "x-kind": "read",
+  "x-side-effects": "ninguno"
+}
