@@ -368,7 +368,7 @@ La clave: **la nube puede fallar sin parar la producción**. Por eso no se paga 
 ## 11. Costos
 
 Detalle con fórmulas en [`finops_model.xlsx`](finops_model.xlsx) y prácticas en [`finops.md`](finops.md).
-Escenario base: 1 planta, 1 estación, **90,3% automatizado (medido** en test, protocolo A, `vision-1.0.1`), precios de lista por región.
+Costo de nube: 1 planta, 1 estación, precios de lista por región (casi no cambia entre escenarios de automatización).
 
 | Bloque | East US 2 (USD/mes) | Spain Central (USD/mes) | Fuente del precio |
 |---|---|---|---|
@@ -379,9 +379,12 @@ Escenario base: 1 planta, 1 estación, **90,3% automatizado (medido** en test, p
 
 Los mayores costos son **PostgreSQL con HA (≈ 275)**, los **Private Endpoints** (≈ 73 del entorno + ≈ 44 de PaaS),
 **AI Search (≈ 74)** y las **2 réplicas del agente (≈ 56)**, no el LLM. El costo de la nube es
-pequeño frente al costo laboral evitado; el número que más mueve el caso de negocio es el **% automatizado**: con 90,3% el ahorro es ≈ 20% en Colombia
-(payback ≈ 100 meses con 1 estación, ≈ 27 con 5) y ≈ 41% en España (≈ 10 meses); el equilibrio está en ≈ 86% (CO) / 81% (ES),
-y con el 73,7-74,9% medido con objetos desconocidos no hay ahorro.
+pequeño frente al costo laboral evitado; el número que más mueve el caso de negocio es el **% automatizado**, que se presenta como **rango**:
+
+'''+RANGE_TABLE+'''
+
+Con objetos desconocidos mezclados **el proyecto no se paga**; la palanca crítica es el **alta de SKU + rechazo de
+desconocidos** y el número real debe medirse en un **piloto en modo sombra** antes de invertir.
 
 ---
 

@@ -10,7 +10,7 @@ Modelo con fórmulas vivas: [`finops_model.xlsx`](finops_model.xlsx) — se rege
 | **Supuestos** | Todas las entradas (celdas amarillas) con unidad, tipo (*Supuesto* / *Medido* / *Referencia* / *Calculado*), fuente y fecha. Nombres definidos (p. ej. `pct_automatizado`) para que las fórmulas se lean solas |
 | **Operación actual** | Costo del operador por estación: horas 24×5 × factor de cobertura × costo cargado/hora, Colombia y España |
 | **Azure** / **AWS** | Una fila por servicio con **dos precios por región**: EE. UU. (East US 2 / us-east-1 → escenario Colombia) y UE-España (Spain Central / eu-south-2 → escenario España). Costo = precio × cantidad × incluir. Columna *Estado*: **API verificada** o **Estimado** (resaltado) |
-| **Comparativo** | Actual vs Azure vs AWS en ambos países, cada país con los precios de su región: OPEX nuevo (nube + mantenimiento de borde + humano residual), ahorro, CAPEX, payback, ahorro neto a 3 años |
+| **Comparativo** | Actual vs Azure vs AWS en ambos países (escenario base) más filas del **escenario pesimista** (`pct_automatizado_pesimista` = 73,7%), cada país con los precios de su región: OPEX nuevo (nube + mantenimiento de borde + humano residual), ahorro, CAPEX, payback, ahorro neto a 3 años |
 | **Sensibilidad** | % automatizado 73,7/74,9/80/90/90,3/95/99 + punto de equilibrio (también escala el almacenamiento de imágenes), estaciones 1/5/20, conversaciones/día 20/60/200/1000 (la columna "todo al modelo grande" lee las celdas de precio gpt-4.1) |
 | **Fuentes** | Una fila por consulta de precio: clave, región, precio, unidad, **medidor / usagetype**, id de medidor o SKU, producto, fecha y la **URL de consulta exacta**. Snapshot en `docs/cloud/precios_snapshot.json` |
 
@@ -31,7 +31,16 @@ Defender for Storage y transacciones de almacenamiento. Para la UE, si no hay pr
 **supuestos** editables. Los precios de nube marcados "API verificada" son **precios de lista reales** consultados el
 2026-10-24. Colombia usa jornada de 42 h/semana (vigente desde el 15-jul-2026).
 
-**Tabla principal (1 planta, 90,3% automatizado):**
+**El caso de negocio es un rango.** Escenario pesimista = **73,7%** (desconocidos mezclados, variante D, medido);
+escenario base/optimista = **90,3%** (referencias densas, protocolo A, medido); equilibrio = **80-86%**.
+
+'''+RANGE_TABLE+'''
+
+En el escenario pesimista **el proyecto no se paga** con ningún proveedor ni en ningún país (Comparativo, filas
+"ESCENARIO PESIMISTA": Azure −1.290 / AWS −1.062 en Colombia; Azure −3.778 / AWS −3.502 en España). La palanca crítica es
+**alta de SKU + rechazo de desconocidos**, y la cobertura real debe medirse en un **piloto en modo sombra**.
+
+**Tabla del escenario base/optimista (1 planta, 90,3% automatizado):**
 
 | USD/mes salvo indicación | Colombia · Azure | Colombia · AWS | España · Azure | España · AWS |
 |---|---|---|---|---|
@@ -63,9 +72,10 @@ Con 20 estaciones (Azure, 90,3%): payback ≈ 20 meses en Colombia y ≈ 3,8 en 
 
 **Mensajes para defender:**
 1. La nube cuesta **~USD 0,002 por objeto**; el gasto LLM (~USD 20/mes) es irrelevante frente a la mano de obra.
-2. El caso de negocio **depende de la tasa de automatización**. El equilibrio está en **~81-86%**: con el 90,3% medido
-   hay ahorro en ambos países, con poco margen en Colombia; con el 74% medido cuando aparecen objetos desconocidos,
-   **no hay ahorro**. Por eso es crítico mantener el catálogo de SKUs al día (alta de SKU) y reducir los desconocidos en la línea.
+2. El caso de negocio **es un rango y depende de la tasa de automatización**. El equilibrio está en **~80-86%**: con el
+   90,3% (protocolo A, el escenario más favorable) hay ahorro en ambos países, con poco margen en Colombia; con el 73,7%
+   medido cuando aparecen objetos desconocidos **el proyecto no se paga**. Palanca crítica: alta de SKU + rechazo de
+   desconocidos. El número real sale de un piloto en modo sombra.
 3. En **Colombia** una estación sola no se justifica (≈ 100 meses) y la diferencia Azure-AWS (≈ 45% del ahorro) sí
    importa: hay que recortar el diseño del piloto. El caso existe **a escala** (≈ 27 meses con 5 estaciones, ≈ 20 con 20).
    En **España** se paga en menos de un año incluso con una estación.

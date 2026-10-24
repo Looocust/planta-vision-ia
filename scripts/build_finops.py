@@ -266,6 +266,8 @@ SUPUESTOS: list = [
     "Desempeño del sistema automático",
     ("pct_automatizado", "% de objetos resueltos sin humano (decisión ACT correcta)", 0.903, "%", "Medido",
      "Cobertura ACT medida en test, protocolo A, vision-1.0.1 (docs/report/results.json): 90,3 % con 0,09 % de error entre ACT (IC95 0,03-0,27 %). Con desconocidos mezclados (D variante) baja a 73,7-74,9 %. Planta real: re-medir en piloto. Ver Sensibilidad", PCT),
+    ("pct_automatizado_pesimista", "% automatizado en el escenario pesimista (objetos desconocidos mezclados)", 0.737, "%", "Medido",
+     "vision-1.0.1, variante D (desconocidos mezclados): 73,7-74,9%. Se usa el extremo bajo", PCT),
     ("min_caso_revision", "Minutos humanos por caso en cola (REVIEW/REJECT)", 0.5, "min/caso", "Supuesto", "Mirar evidencia + reubicar el objeto desviado (~30 s)", NUM),
     ("fraccion_atencion", "Fracción de las horas de operación de la estación que requiere una persona (supervisión itinerante, atascos, reabastecer)", 0.10, "% horas puesto", "Supuesto",
      "Horas residuales = fracción × horas_mes × factor_cobertura (≈ 60 h pagadas/mes). NO es FTE", PCT),
@@ -643,7 +645,7 @@ def equilibrio(s_: str, u: str, cloud: str) -> str:
 cmp_ = wb.create_sheet("Comparativo")
 title(
     cmp_,
-    "Comparativo: operación actual vs Azure vs AWS",
+    "Comparativo: operación actual vs Azure vs AWS (base = pct_automatizado; abajo, escenario pesimista)",
     "USD/mes. Colombia usa precios de región EE. UU.; España usa precios de región UE-España. "
     "Costo nuevo = nube + mantenimiento de borde + humano residual. El robot existe en ambos escenarios.",
     5,
@@ -692,6 +694,21 @@ for col, (s_, c_, u_) in COLS.items():
     cmp_[f"{col}{r}"] = f"={equilibrio(s_, u_, c_)}"
     cmp_[f"{col}{r}"].number_format = PCT
     cmp_[f"{col}{r}"].font = BOLD
+r += 1
+cmp_.cell(row=r, column=1, value="ESCENARIO PESIMISTA (pct_automatizado_pesimista, desconocidos mezclados)").font = BOLD
+r += 1
+r_ah = r
+cmp_.cell(row=r, column=1, value="Ahorro mensual pesimista")
+for col, (s_, c_, u_) in COLS.items():
+    cmp_[f"{col}{r}"] = f"={ahorro('pct_automatizado_pesimista', s_, u_, c_)}"
+    cmp_[f"{col}{r}"].number_format = USD0
+    cmp_[f"{col}{r}"].fill = FILL_EST
+r += 1
+cmp_.cell(row=r, column=1, value="Payback pesimista (meses)")
+for col in COLS:
+    cmp_[f"{col}{r}"] = f'=IF({col}{r_ah}>0,{col}17/{col}{r_ah},"No recupera")'
+    cmp_[f"{col}{r}"].number_format = NUM
+    cmp_[f"{col}{r}"].fill = FILL_EST
 r += 2
 for n in [
     "Lectura rápida:",

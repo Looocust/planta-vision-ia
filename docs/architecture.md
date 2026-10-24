@@ -19,7 +19,7 @@ modelo no resuelva**.
 | Captura → calidad → clase → ángulo → decisión → comando | **Determinista** (ML clásico + umbrales) | **Borde**: PC industrial en la celda | ms (visión medida p50 18 / p95 25 ms; presupuesto total < 100 ms) | Fijo, CPU, sin costo por objeto | Alto (mueve un robot) → falla segura `HOLD` |
 | Cola de revisión (alta del caso) | Determinista | Borde con buffer → nube | s | Bajo | Medio → se guarda localmente |
 | Revisión humana | Humano | UI en nube (respaldo local) | min | Es el costo residual principal | Bajo |
-| Asistente: preguntas, diagnóstico, SOP con citas, traspaso de turno | **Agéntico** (LLM + 13 tools) | **Nube** | s | Por token (~USD 20/mes) | Bajo para la línea: si cae, la producción sigue |
+| Asistente: preguntas, diagnóstico, SOP con citas, traspaso de turno | **Agéntico** (LLM + 16 tools: 8 de lectura + 8 de escritura) | **Nube** | s | Por token (~USD 20/mes) | Bajo para la línea: si cae, la producción sigue |
 | Política RBAC, aprobaciones, ejecutor, auditoría | **Determinista** | Nube | ms | Bajo | Alto → por eso no es un prompt |
 | Alta de SKU, reentrenamiento, promoción | Determinista + aprobación humana | Nube → despliegue por anillos al borde | min–h | Esporádico | Alto → staging, canario, rollback |
 
@@ -70,15 +70,21 @@ Detalle: [Azure](cloud/azure_architecture.md) · [AWS](cloud/aws_architecture.md
 [Comparación y recomendación](cloud/azure_vs_aws.md) · [FinOps](cloud/finops.md) ·
 [Modelo de costos (xlsx)](cloud/finops_model.xlsx).
 
-## 6. Caso de negocio en tres números (supuestos editables en el xlsx)
+## 6. Caso de negocio: un rango, no un número (supuestos editables en el xlsx)
 
-- La nube cuesta **≈ USD 640/mes por planta en East US 2 y ≈ 740 en Spain Central** (Azure, 1 estación, precios de
-  lista verificados en su mayoría) ≈ **USD 0,002 por objeto**.
-- Con el **90,3% de automatización medido** (cobertura ACT en test, `vision-1.0.1`), el ahorro es **≈ 20% en Colombia**
-  (payback ≈ 100 meses con 1 estación, ≈ 27 con 5) y **≈ 41% en España** (payback ≈ 9,9 meses).
-- El equilibrio está en **≈ 86% (Colombia) / 81% (España)**. Con el **73,7-74,9%** medido cuando hay objetos desconocidos
-  mezclados el proyecto **no se paga**: la cola de revisión se come el ahorro. La métrica que manda
-  es el % de objetos que el sistema resuelve **de forma segura**.
+El caso de negocio se presenta como **rango** entre dos coberturas **medidas** de `vision-1.0.1`; ninguna de las dos es
+todavía el número real de planta.
+
+'''+RANGE_TABLE+'''
+
+- **Con objetos desconocidos mezclados, el proyecto no se paga** en ningún país: la cola de revisión se come el ahorro.
+  El equilibrio está en **≈ 80-86%** de automatización segura.
+- Por eso la palanca crítica no es la nube sino **el alta de SKU** (mantener el catálogo al día) y **el rechazo correcto
+  de desconocidos** (que no lleguen a la línea o se resuelvan rápido).
+- **El número real debe medirse en un piloto en modo sombra** (el sistema decide en paralelo al operador, sin mover el
+  robot) antes de comprometer la inversión.
+- La nube cuesta **≈ USD 640/mes por planta en East US 2 y ≈ 740 en Spain Central** (Azure, 1 estación) ≈ **USD 0,002 por
+  objeto**: no es lo que decide el caso.
 
 ## 7. Cómo ejecutarlo
 
