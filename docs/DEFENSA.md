@@ -116,14 +116,26 @@ Las condiciones más fuertes que las del entrenamiento están reportadas tal cua
 Un chatbot normal solo contesta. Un **agente** recibe una meta, **decide qué herramientas usar** (consultar métricas, inspeccionar una foto, buscar un manual, crear un ticket), mira el resultado y decide el siguiente paso, hasta terminar.
 
 ### Patrón elegido
-⟨Se completa con docs/agent_design.md: agente con tools en LangGraph + nodo de política determinístico + pausa para aprobación humana⟩
+**Un solo agente ReAct** (razonar → usar herramienta → observar → repetir), construido como **grafo en LangGraph** con nodos determinísticos:
+
+```
+agent (LLM) → guard (código) → tools (código) → agent … → respuesta
+                    └─ si es operación de riesgo → pausa (interrupt) → humano aprueba → ejecutor (código)
+```
+
+- **agent:** el LLM. Solo ve las herramientas que su rol permite.
+- **guard:** código que revisa que la herramienta exista, valida los argumentos, aplica permisos, cuenta pasos y detecta bucles.
+- **tools:** ejecuta con timeout. Planta, línea y usuario salen del **token verificado**, nunca del LLM.
+- **await_approval:** pausa el flujo hasta que **otra persona autorizada** apruebe.
+
+**16 herramientas** (8 de lectura y 8 de escritura): inspeccionar imágenes, cola de revisión, métricas de línea, salud de cámara, versiones de modelo, eventos del robot, buscar SOP con citas, tickets, alta de SKU, operación de riesgo, reporte de turno, entre otras. El detalle está en [`tool_catalog.md`](tool_catalog.md).
 
 **Alternativas descartadas** (prepárate para esta pregunta):
 | Alternativa | Por qué no |
 |---|---|
-| Multi-agente (un agente por área) | Más llamadas al LLM = más costo y latencia, más puntos de falla; no mejoró la calidad en este alcance |
-| Flujo fijo / formulario | No resuelve preguntas abiertas como "¿por qué subieron los rechazos?" |
-| ⟨…⟩ | ⟨…⟩ |
+| Multi-agente (un supervisor + agentes por área) | 1,5–3× más llamadas al LLM, más latencia y más superficie de ataque entre agentes. Las 16 herramientas caben en un solo contexto, y los casos cruzan áreas (rechazos = métricas + cámara + modelo). |
+| Flujo fijo / router por intención | Barato, pero es un formulario disfrazado: no resuelve preguntas abiertas como "¿por qué subieron los rechazos?". La prueba lo excluye explícitamente. |
+| Plan-and-execute (planificar todo y luego ejecutar) | El doble de llamadas, y un plan erróneo se ejecuta entero. Los turnos típicos usan 1–4 herramientas y ReAct re-planifica con cada observación. |
 
 ### Lo que el LLM NUNCA decide
 - Si el robot actúa (lo decide el servicio de visión).
@@ -134,8 +146,33 @@ Un chatbot normal solo contesta. Un **agente** recibe una meta, **decide qué he
 ### Límites para que no se quede en un loop
 Máximo de pasos por turno, máximo de llamadas a tools, detección de la misma llamada repetida, timeouts y presupuesto de tokens.
 
-### Evaluación
-⟨Resultados de docs/report/agent_eval.md: % de éxito, % de tools correctas, tokens y costo promedio, fallos principales, 3 mejoras⟩
+### Seguridad: qué encontró el auditor y cómo se cerró
+| Hallazgo de Codex | Corrección |
+|---|---|
+| Se podía aprobar diciendo "soy el supervisor 2" | Tokens firmados (HMAC); el aprobador sale del token. En producción, Entra ID. |
+| La planta 1 veía candidatos de la planta 2 | Registro, candidatos e inspección filtrados por planta |
+| El LLM podía meter etiquetas "humanas" al dataset | El LLM solo propone; el humano confirma en la UI, en una transacción |
+| Dos acciones en paralelo se saltaban el límite | Cada llamada re-verifica los límites; máximo 3 escrituras por turno |
+
+### Evaluación (Gemini 3.1 Flash-Lite real)
+| Set | Éxito | Herramienta correcta | Argumentos correctos | Costo total |
+|---|---|---|---|---|
+| Principal (43 casos) | **88,4%** | 92,9% | 94,7% | USD 0,034 (~USD 0,0008 por caso) |
+| **Holdout** (11 casos nuevos, no usados para ajustar) | **11/11** | 100% | 10/11 | USD 0,0097 |
+
+- **Escenarios adversos: 12/12.** Desconocido, no confiable, tool o argumentos inválidos, visión con 500 o timeout, bucle, inyección de prompt, rol no autorizado, auto-aprobación, ticket duplicado, acceso a otra planta, umbral fuera de rango.
+- **Cero violaciones de seguridad:** 0 comandos al robot sin aprobar, 0 auto-aprobaciones y 0 escrituras al dataset sin confirmación.
+- **Los 5 fallos son de calidad de respuesta, no de seguridad:**
+  - Pregunta antes de encolar cuando le dicen "haz lo que corresponda".
+  - No consultó la cámara en una pregunta causal.
+  - Omitió citas del SOP.
+  - Citó una sección equivocada.
+  - Copió un id de imagen con una coma (ya corregido).
+- **Ser honesto con esto:** el set principal se usó para ajustar el prompt, así que su resultado es optimista. El holdout es la mejor estimación, pero n=11 da un intervalo amplio.
+- **3 mejoras priorizadas:**
+  1. Exigir por código las fuentes mínimas en preguntas causales (métricas + cámara + versión).
+  2. Agregar de forma determinística las citas y los IDs al final de la respuesta.
+  3. Re-ranking de SOP con embeddings.
 
 ## 5. Reto 4 – Despliegue
 - Dos servicios separados: **API de visión** (puerto 8001) y **agente** (puerto 8002).
