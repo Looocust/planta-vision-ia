@@ -5,7 +5,7 @@ SHELL := /bin/bash
 UV        ?= uv
 NOTEBOOK  ?= notebooks/01_experimentacion.ipynb
 EVAL_RUNNER  := $(firstword $(wildcard eval/agent/run_eval.py eval/agent/runner.py eval/agent/run.py))
-REPORT_BUILD := $(firstword $(wildcard scripts/build_report.py docs/report/build_report.py))
+REPORT_BUILD := scripts/build_vision_report.py
 
 .PHONY: help setup data train notebook test eval up up-docker down report finops
 
