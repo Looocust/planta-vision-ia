@@ -1,0 +1,918 @@
+{
+  "version": "vision-dev",
+  "stage": "production",
+  "created_at": "2026-10-24T19:10:43.578418+00:00",
+  "data_version_hash": "e9e73124fbf0e964a5248ac55d915dfb58603be5534f82aeda1cababc126bbeb",
+  "dataset": "COIL-100 (7.200 vistas, 100 objetos, paso 5°)",
+  "seed": 42,
+  "recipe": {
+    "name": "classic-logreg-v2",
+    "features": "HSV(16x4x4)+HOG(64px,9or,8x8)+LBP(u8,2x2)+Hu → StandardScaler → PCA(150)",
+    "clf": "logreg",
+    "params": {
+      "C": 1.0
+    },
+    "n_pca": 150,
+    "k_candidates": [
+      1,
+      2,
+      3
+    ],
+    "target_error": 0.02,
+    "min_act": 50,
+    "unreliable_max_fail_rate": 0.25,
+    "novelty_gate_2": "razón distancia-a-la-clase / espaciado típico de la clase ≤ percentil 99 de conocidos en validación",
+    "preprocessing": "mediana 3×3 + máscara (Gauss 5×5, gris>40, apertura 3×3) + fondo a 0",
+    "augment": true,
+    "ratio_gate": true,
+    "augmentation": "1 copia por vista de train: ruido σ~U(0,6), brillo ×U(0.8,1.2), blur σ~U(0.5,1) con p=0.3; validación = vistas limpias + 1 copia perturbada con la misma distribución"
+  },
+  "model_family": "clásico: HSV+HOG+LBP+Hu → estandarización → PCA → logreg",
+  "classifier": {
+    "name": "logreg",
+    "params": {
+      "C": 1.0
+    },
+    "selection_source": "receta congelada (src/vision/recipe.py), elegida en la exploración por validación"
+  },
+  "n_pca": 150,
+  "k_angle_refine": 3,
+  "k_table_val": [
+    {
+      "k": 1,
+      "val_within_10": 0.9604938271604938,
+      "val_mae_deg": 7.294753086419753
+    },
+    {
+      "k": 2,
+      "val_within_10": 0.9623456790123457,
+      "val_mae_deg": 4.055552669029014
+    },
+    {
+      "k": 3,
+      "val_within_10": 0.9646604938271605,
+      "val_mae_deg": 4.4399862520182145
+    }
+  ],
+  "feature_config": {
+    "size": 128,
+    "hog_size": 64,
+    "hog_orientations": 9,
+    "hog_ppc": 8,
+    "hog_cpb": 2,
+    "h_bins": 16,
+    "s_bins": 4,
+    "v_bins": 4,
+    "lbp_grid": 2,
+    "mask_threshold": 40,
+    "w_color": 1.0,
+    "w_hog": 1.0,
+    "w_lbp": 0.5,
+    "w_hu": 0.25,
+    "blocks": [
+      "color",
+      "hog",
+      "lbp",
+      "hu"
+    ],
+    "denoise_ksize": 3,
+    "suppress_background": true
+  },
+  "thresholds": {
+    "min_class_confidence": 0.95,
+    "max_angle_uncertainty_deg": 20.0,
+    "unknown_distance": 19.83979578971863,
+    "max_novelty_ratio": 1.369483505450693
+  },
+  "threshold_validation": {
+    "thresholds": {
+      "min_class_confidence": 0.95,
+      "max_angle_uncertainty_deg": 20.0,
+      "unknown_distance": 19.83979578971863,
+      "max_novelty_ratio": 1.369483505450693
+    },
+    "val_n_act": 5737,
+    "val_n_errors": 83,
+    "val_coverage": 0.7243686868686868,
+    "val_error_among_act": 0.014467491720411365,
+    "val_error_wilson95": [
+      0.011686479681602078,
+      0.017898311509989065
+    ],
+    "target_error": 0.02,
+    "min_act": 50,
+    "unknown_false_accept_val": {
+      "k": 42,
+      "n": 1440,
+      "rate": 0.029166666666666667,
+      "wilson95": [
+        0.02164962108207316,
+        0.03918918561251162
+      ],
+      "max_allowed": 0.05,
+      "min_cases": 100,
+      "ok": true
+    },
+    "angle_threshold_source": "validation",
+    "automation_enabled": true,
+    "pseudo_unknown_objects": [
+      "obj2",
+      "obj5",
+      "obj27",
+      "obj38",
+      "obj46",
+      "obj55",
+      "obj59",
+      "obj61",
+      "obj83",
+      "obj99"
+    ]
+  },
+  "quality_thresholds": {
+    "min_side": 32,
+    "max_side": 4096,
+    "min_brightness": 0.0647784,
+    "max_brightness": 0.728470800000004,
+    "min_sharpness": 24.226419999999997,
+    "min_object_fraction": 0.0671598,
+    "max_object_fraction": 0.9571784000000046
+  },
+  "angle_tolerance_deg": 10.0,
+  "classes": [
+    "obj1",
+    "obj10",
+    "obj100",
+    "obj11",
+    "obj12",
+    "obj13",
+    "obj14",
+    "obj15",
+    "obj16",
+    "obj17",
+    "obj18",
+    "obj19",
+    "obj2",
+    "obj20",
+    "obj21",
+    "obj22",
+    "obj23",
+    "obj24",
+    "obj25",
+    "obj26",
+    "obj27",
+    "obj28",
+    "obj29",
+    "obj3",
+    "obj30",
+    "obj31",
+    "obj32",
+    "obj33",
+    "obj34",
+    "obj35",
+    "obj36",
+    "obj37",
+    "obj38",
+    "obj39",
+    "obj4",
+    "obj40",
+    "obj41",
+    "obj42",
+    "obj43",
+    "obj44",
+    "obj45",
+    "obj46",
+    "obj47",
+    "obj48",
+    "obj49",
+    "obj5",
+    "obj50",
+    "obj51",
+    "obj52",
+    "obj53",
+    "obj54",
+    "obj55",
+    "obj56",
+    "obj57",
+    "obj58",
+    "obj59",
+    "obj6",
+    "obj60",
+    "obj61",
+    "obj62",
+    "obj63",
+    "obj64",
+    "obj65",
+    "obj66",
+    "obj67",
+    "obj68",
+    "obj69",
+    "obj7",
+    "obj70",
+    "obj71",
+    "obj72",
+    "obj73",
+    "obj74",
+    "obj75",
+    "obj76",
+    "obj77",
+    "obj78",
+    "obj79",
+    "obj8",
+    "obj80",
+    "obj81",
+    "obj82",
+    "obj83",
+    "obj84",
+    "obj85",
+    "obj86",
+    "obj87",
+    "obj88",
+    "obj89",
+    "obj9",
+    "obj90",
+    "obj91",
+    "obj92",
+    "obj93",
+    "obj94",
+    "obj95",
+    "obj96",
+    "obj97",
+    "obj98",
+    "obj99"
+  ],
+  "symmetric_classes": [
+    "obj35",
+    "obj47",
+    "obj67",
+    "obj84",
+    "obj94",
+    "obj95",
+    "obj98"
+  ],
+  "symmetric_classes_sources": {
+    "loo_twin_view": [
+      "obj67",
+      "obj84",
+      "obj98"
+    ],
+    "validation_angle_unreliable": [
+      "obj35",
+      "obj47",
+      "obj94",
+      "obj95",
+      "obj98"
+    ]
+  },
+  "symmetry_scores": {
+    "obj1": 0.2431,
+    "obj10": 0.0,
+    "obj100": 0.0,
+    "obj11": 0.0,
+    "obj12": 0.2361,
+    "obj13": 0.0278,
+    "obj14": 0.0,
+    "obj15": 0.0,
+    "obj16": 0.0,
+    "obj17": 0.0,
+    "obj18": 0.0208,
+    "obj19": 0.0139,
+    "obj2": 0.0069,
+    "obj20": 0.0,
+    "obj21": 0.0,
+    "obj22": 0.0347,
+    "obj23": 0.0,
+    "obj24": 0.0,
+    "obj25": 0.0,
+    "obj26": 0.0069,
+    "obj27": 0.0,
+    "obj28": 0.0,
+    "obj29": 0.0,
+    "obj3": 0.0,
+    "obj30": 0.0,
+    "obj31": 0.0625,
+    "obj32": 0.0,
+    "obj33": 0.0208,
+    "obj34": 0.0208,
+    "obj35": 0.1042,
+    "obj36": 0.0,
+    "obj37": 0.0,
+    "obj38": 0.0,
+    "obj39": 0.0139,
+    "obj4": 0.0,
+    "obj40": 0.0,
+    "obj41": 0.0,
+    "obj42": 0.0069,
+    "obj43": 0.0,
+    "obj44": 0.0,
+    "obj45": 0.0,
+    "obj46": 0.0,
+    "obj47": 0.1736,
+    "obj48": 0.0,
+    "obj49": 0.0069,
+    "obj5": 0.0,
+    "obj50": 0.0139,
+    "obj51": 0.1667,
+    "obj52": 0.0,
+    "obj53": 0.0,
+    "obj54": 0.0069,
+    "obj55": 0.0139,
+    "obj56": 0.0139,
+    "obj57": 0.0,
+    "obj58": 0.0,
+    "obj59": 0.0,
+    "obj6": 0.0,
+    "obj60": 0.0,
+    "obj61": 0.0,
+    "obj62": 0.0,
+    "obj63": 0.0,
+    "obj64": 0.125,
+    "obj65": 0.1042,
+    "obj66": 0.0417,
+    "obj67": 0.4583,
+    "obj68": 0.0,
+    "obj69": 0.0,
+    "obj7": 0.0069,
+    "obj70": 0.0,
+    "obj71": 0.0,
+    "obj72": 0.0,
+    "obj73": 0.0,
+    "obj74": 0.0,
+    "obj75": 0.0,
+    "obj76": 0.0,
+    "obj77": 0.0,
+    "obj78": 0.0,
+    "obj79": 0.1319,
+    "obj8": 0.0,
+    "obj80": 0.0,
+    "obj81": 0.0,
+    "obj82": 0.0,
+    "obj83": 0.0,
+    "obj84": 0.4444,
+    "obj85": 0.0,
+    "obj86": 0.0,
+    "obj87": 0.0208,
+    "obj88": 0.0139,
+    "obj89": 0.0,
+    "obj9": 0.0,
+    "obj90": 0.0,
+    "obj91": 0.0,
+    "obj92": 0.0,
+    "obj93": 0.0,
+    "obj94": 0.1875,
+    "obj95": 0.2361,
+    "obj96": 0.1944,
+    "obj97": 0.0,
+    "obj98": 0.5,
+    "obj99": 0.0208
+  },
+  "metrics_note": "El artefacto usa las 7.200 vistas (+1 copia aumentada) y no tiene test propio. Las cifras independientes son las de la selección ANIDADA por protocolo (results.json → recipe.nested); las de esta configuración desplegada (results.json → recipe.results.classic) tienen familia/C elegidos con validación agregada que se solapa con tests de otros protocolos.",
+  "changelog": [
+    "1.0.0: receta inicial",
+    "1.0.1: preprocesado robusto a ruido (mediana 3×3 + supresión de fondo), aumentación en train, umbrales calibrados con validación perturbada, criterio de falsa aceptación de desconocidos ≤5 %",
+    "1.0.2: 2ª compuerta de novedad (distancia a la clase / espaciado típico de la clase, percentil 99 de conocidos en validación) contra desconocidos casi duplicados"
+  ],
+  "metrics_summary": {
+    "A": {
+      "recipe_classic": {
+        "class_accuracy": 1.0,
+        "angle_mae_deg": 2.9113461201993722,
+        "angle_within_10": 0.985,
+        "end_to_end_success": 0.985,
+        "coverage_act": 0.9027777777777778,
+        "review_rate": 0.09694444444444444,
+        "reject_rate": 0.0002777777777777778,
+        "n_act": 3250,
+        "error_among_act": 0.0009230769230769231,
+        "error_among_act_wilson95": [
+          0.000313972318967312,
+          0.002710637115001447
+        ],
+        "automation_enabled": true,
+        "k": 2,
+        "thresholds": {
+          "min_class_confidence": 0.4,
+          "max_angle_uncertainty_deg": 15.0,
+          "unknown_distance": 38.06143230438231
+        },
+        "ece": 0.0013757752875486595,
+        "known_false_reject": 0.0002777777777777778
+      },
+      "nested_classic": {
+        "class_accuracy": 1.0,
+        "angle_mae_deg": 2.9113461201993722,
+        "angle_within_10": 0.985,
+        "end_to_end_success": 0.985,
+        "coverage_act": 0.9030555555555555,
+        "review_rate": 0.09666666666666666,
+        "reject_rate": 0.0002777777777777778,
+        "n_act": 3251,
+        "error_among_act": 0.0009227929867733005,
+        "error_among_act_wilson95": [
+          0.0003138757268832085,
+          0.0027098044423760266
+        ],
+        "automation_enabled": true,
+        "k": 2,
+        "thresholds": {
+          "min_class_confidence": 0.2,
+          "max_angle_uncertainty_deg": 30.0,
+          "unknown_distance": 38.06143230438231
+        },
+        "ece": 0.34328780124250197,
+        "known_false_reject": 0.0002777777777777778,
+        "selected_candidate": "svm_rbf:{'C': 10.0}"
+      },
+      "recipe_resnet18": {
+        "class_accuracy": 1.0,
+        "angle_mae_deg": 1.982566399932625,
+        "angle_within_10": 0.9877777777777778,
+        "end_to_end_success": 0.9877777777777778,
+        "coverage_act": 0.0,
+        "review_rate": 1.0,
+        "reject_rate": 0.0,
+        "n_act": 0,
+        "error_among_act": null,
+        "error_among_act_wilson95": [
+          null,
+          null
+        ],
+        "automation_enabled": false,
+        "k": 2,
+        "thresholds": {
+          "min_class_confidence": 0.8,
+          "max_angle_uncertainty_deg": -1.0,
+          "unknown_distance": 14.023426361083983
+        },
+        "ece": 0.003519831399122827,
+        "known_false_reject": 0.0
+      },
+      "baseline_raw_1nn": {
+        "class_accuracy": 0.9997222222222222,
+        "angle_mae_deg": 5.928035565434843,
+        "angle_within_10": 0.9761044734648513,
+        "end_to_end_success": 0.9758333333333333,
+        "coverage_act": 1.0,
+        "error_among_act": 0.024166666666666666,
+        "error_among_act_wilson95": [
+          0.019634472983872966,
+          0.02971331189102275
+        ]
+      }
+    },
+    "B": {
+      "recipe_classic": {
+        "class_accuracy": 0.9616666666666667,
+        "angle_mae_deg": 65.5155979202773,
+        "angle_within_10": 0.29636048526863085,
+        "end_to_end_success": 0.285,
+        "coverage_act": 0.0,
+        "review_rate": 0.9983333333333333,
+        "reject_rate": 0.0016666666666666668,
+        "n_act": 0,
+        "error_among_act": null,
+        "error_among_act_wilson95": [
+          null,
+          null
+        ],
+        "automation_enabled": false,
+        "k": 1,
+        "thresholds": {
+          "min_class_confidence": 0.8,
+          "max_angle_uncertainty_deg": -1.0,
+          "unknown_distance": 39.73427150726317
+        },
+        "ece": 0.01534483342121043,
+        "known_false_reject": 0.0016666666666666668
+      },
+      "nested_classic": {
+        "class_accuracy": 0.9616666666666667,
+        "angle_mae_deg": 65.5155979202773,
+        "angle_within_10": 0.29636048526863085,
+        "end_to_end_success": 0.285,
+        "coverage_act": 0.0,
+        "review_rate": 0.9983333333333333,
+        "reject_rate": 0.0016666666666666668,
+        "n_act": 0,
+        "error_among_act": null,
+        "error_among_act_wilson95": [
+          null,
+          null
+        ],
+        "automation_enabled": false,
+        "k": 1,
+        "thresholds": {
+          "min_class_confidence": 0.8,
+          "max_angle_uncertainty_deg": -1.0,
+          "unknown_distance": 39.73427150726317
+        },
+        "ece": 0.01534483342121043,
+        "known_false_reject": 0.0016666666666666668,
+        "selected_candidate": "logreg:{'C': 1.0}"
+      },
+      "recipe_resnet18": {
+        "class_accuracy": 0.9966666666666667,
+        "angle_mae_deg": 48.32357859531773,
+        "angle_within_10": 0.2801003344481605,
+        "end_to_end_success": 0.2791666666666667,
+        "coverage_act": 0.0,
+        "review_rate": 0.9875,
+        "reject_rate": 0.0125,
+        "n_act": 0,
+        "error_among_act": null,
+        "error_among_act_wilson95": [
+          null,
+          null
+        ],
+        "automation_enabled": false,
+        "k": 1,
+        "thresholds": {
+          "min_class_confidence": 0.6,
+          "max_angle_uncertainty_deg": -1.0,
+          "unknown_distance": 16.094745807647705
+        },
+        "ece": 0.015361323927839558,
+        "known_false_reject": 0.0125
+      },
+      "baseline_raw_1nn": {
+        "class_accuracy": 0.9291666666666667,
+        "angle_mae_deg": 61.224215246636774,
+        "angle_within_10": 0.3076233183856502,
+        "end_to_end_success": 0.28583333333333333,
+        "coverage_act": 1.0,
+        "error_among_act": 0.7141666666666666,
+        "error_among_act_wilson95": [
+          0.6879513278914753,
+          0.739015143444953
+        ]
+      }
+    },
+    "C": {
+      "recipe_classic": {
+        "class_accuracy": 0.9883333333333333,
+        "angle_mae_deg": 13.007588532883643,
+        "angle_within_10": 0.7052276559865093,
+        "end_to_end_success": 0.697,
+        "coverage_act": 0.0,
+        "review_rate": 0.9953333333333333,
+        "reject_rate": 0.004666666666666667,
+        "n_act": 0,
+        "error_among_act": null,
+        "error_among_act_wilson95": [
+          null,
+          null
+        ],
+        "automation_enabled": false,
+        "k": 1,
+        "thresholds": {
+          "min_class_confidence": 0.9,
+          "max_angle_uncertainty_deg": -1.0,
+          "unknown_distance": 43.85988677978515
+        },
+        "ece": 0.012073097048948172,
+        "known_false_reject": 0.004666666666666667
+      },
+      "nested_classic": {
+        "class_accuracy": 0.9878333333333333,
+        "angle_mae_deg": 13.006580057364603,
+        "angle_within_10": 0.7057533322085372,
+        "end_to_end_success": 0.6971666666666667,
+        "coverage_act": 0.0,
+        "review_rate": 0.9953333333333333,
+        "reject_rate": 0.004666666666666667,
+        "n_act": 0,
+        "error_among_act": null,
+        "error_among_act_wilson95": [
+          null,
+          null
+        ],
+        "automation_enabled": false,
+        "k": 1,
+        "thresholds": {
+          "min_class_confidence": 0.7,
+          "max_angle_uncertainty_deg": -1.0,
+          "unknown_distance": 43.85988677978515
+        },
+        "ece": 0.03848803568507231,
+        "known_false_reject": 0.004666666666666667,
+        "selected_candidate": "logreg:{'C': 0.1}"
+      },
+      "recipe_resnet18": {
+        "class_accuracy": 0.9998333333333334,
+        "angle_mae_deg": 11.351058509751626,
+        "angle_within_10": 0.698283047174529,
+        "end_to_end_success": 0.6981666666666667,
+        "coverage_act": 0.0,
+        "review_rate": 1.0,
+        "reject_rate": 0.0,
+        "n_act": 0,
+        "error_among_act": null,
+        "error_among_act_wilson95": [
+          null,
+          null
+        ],
+        "automation_enabled": false,
+        "k": 1,
+        "thresholds": {
+          "min_class_confidence": 0.5,
+          "max_angle_uncertainty_deg": -1.0,
+          "unknown_distance": 23.340314445495604
+        },
+        "ece": 0.010426689147949177,
+        "known_false_reject": 0.0
+      },
+      "baseline_raw_1nn": {
+        "class_accuracy": 0.9738333333333333,
+        "angle_mae_deg": 14.024473729248674,
+        "angle_within_10": 0.7627930857436248,
+        "end_to_end_success": 0.7428333333333333,
+        "coverage_act": 1.0,
+        "error_among_act": 0.25716666666666665,
+        "error_among_act_wilson95": [
+          0.24626504365356955,
+          0.26837904689005826
+        ]
+      }
+    },
+    "D": {
+      "recipe_classic": {
+        "class_accuracy": 1.0,
+        "angle_mae_deg": 2.895365852033291,
+        "angle_within_10": 0.9861111111111112,
+        "end_to_end_success": 0.9861111111111112,
+        "coverage_act": 0.7366161616161616,
+        "review_rate": 0.12525252525252525,
+        "reject_rate": 0.13813131313131313,
+        "n_act": 2917,
+        "error_among_act": 0.009256085018854988,
+        "error_among_act_wilson95": [
+          0.006369127645126106,
+          0.013433931856628454
+        ],
+        "automation_enabled": true,
+        "k": 2,
+        "thresholds": {
+          "min_class_confidence": 0.9,
+          "max_angle_uncertainty_deg": 12.5,
+          "unknown_distance": 24.424469127655033
+        },
+        "ece": 0.001412070091859801,
+        "auroc_nn_distance": 0.9751997599451303,
+        "auroc_neg_confidence": 0.9946274862825788,
+        "auroc_combined_rank": 0.9918910751028808,
+        "unknown_rejected": 0.6791666666666667,
+        "unknown_rejected_wilson95": [
+          0.6441959722910203,
+          0.712235600583487
+        ],
+        "unknown_reaches_act": 0.030555555555555555,
+        "unknown_reaches_act_wilson95": [
+          0.0202635080532478,
+          0.04583051030657014
+        ],
+        "known_false_reject": 0.017901234567901235
+      },
+      "nested_classic": {
+        "class_accuracy": 0.9962962962962963,
+        "angle_mae_deg": 2.738128630468247,
+        "angle_within_10": 0.9869888475836431,
+        "end_to_end_success": 0.9833333333333333,
+        "coverage_act": 0.7492424242424243,
+        "review_rate": 0.11262626262626263,
+        "reject_rate": 0.13813131313131313,
+        "n_act": 2967,
+        "error_among_act": 0.02561509942703067,
+        "error_among_act_wilson95": [
+          0.020514441845940763,
+          0.03194261274761279
+        ],
+        "automation_enabled": true,
+        "k": 2,
+        "thresholds": {
+          "min_class_confidence": 0.99,
+          "max_angle_uncertainty_deg": 12.5,
+          "unknown_distance": 24.424469127655033
+        },
+        "ece": 0.0037037037037036535,
+        "auroc_nn_distance": 0.9751997599451303,
+        "auroc_neg_confidence": 0.5,
+        "auroc_combined_rank": 0.9751997599451303,
+        "unknown_rejected": 0.6791666666666667,
+        "unknown_rejected_wilson95": [
+          0.6441959722910203,
+          0.712235600583487
+        ],
+        "unknown_reaches_act": 0.09861111111111111,
+        "unknown_reaches_act_wilson95": [
+          0.07891748410713845,
+          0.12256527123601949
+        ],
+        "known_false_reject": 0.017901234567901235,
+        "selected_candidate": "knn:{'n_neighbors': 1}"
+      },
+      "recipe_resnet18": {
+        "class_accuracy": 1.0,
+        "angle_mae_deg": 1.945202429033251,
+        "angle_within_10": 0.9901234567901235,
+        "end_to_end_success": 0.9901234567901235,
+        "coverage_act": 0.0,
+        "review_rate": 0.8469696969696969,
+        "reject_rate": 0.15303030303030302,
+        "n_act": 0,
+        "error_among_act": null,
+        "error_among_act_wilson95": [
+          null,
+          null
+        ],
+        "automation_enabled": false,
+        "k": 2,
+        "thresholds": {
+          "min_class_confidence": 0.9,
+          "max_angle_uncertainty_deg": -1.0,
+          "unknown_distance": 11.644436788558961
+        },
+        "ece": 0.0030665925255528217,
+        "auroc_nn_distance": 0.9812945816186557,
+        "auroc_neg_confidence": 0.9558309756515775,
+        "auroc_combined_rank": 0.9747380829903978,
+        "unknown_rejected": 0.8347222222222223,
+        "unknown_rejected_wilson95": [
+          0.8058284729046873,
+          0.8600630702174544
+        ],
+        "unknown_reaches_act": 0.0,
+        "unknown_reaches_act_wilson95": [
+          0.0,
+          0.005307238489746928
+        ],
+        "known_false_reject": 0.0015432098765432098
+      },
+      "baseline_raw_1nn": {
+        "class_accuracy": 1.0,
+        "angle_mae_deg": 5.941358024691358,
+        "angle_within_10": 0.9780864197530864,
+        "end_to_end_success": 0.9780864197530864,
+        "coverage_act": 1.0,
+        "error_among_act": 0.19974747474747476,
+        "error_among_act_wilson95": [
+          0.18758842738123843,
+          0.21248850808459857
+        ]
+      }
+    },
+    "D_strict": {
+      "recipe_classic": {
+        "class_accuracy": null,
+        "angle_mae_deg": null,
+        "angle_within_10": null,
+        "end_to_end_success": null,
+        "coverage_act": 0.06388888888888888,
+        "review_rate": 0.22361111111111112,
+        "reject_rate": 0.7125,
+        "n_act": 46,
+        "error_among_act": 1.0,
+        "error_among_act_wilson95": [
+          0.9229238226702192,
+          1.0
+        ],
+        "automation_enabled": true,
+        "k": 3,
+        "thresholds": {
+          "min_class_confidence": 0.95,
+          "max_angle_uncertainty_deg": 30.0,
+          "unknown_distance": 23.084545278549207
+        },
+        "ece": null,
+        "unknown_rejected": 0.7125,
+        "unknown_rejected_wilson95": [
+          0.6783809017444715,
+          0.7443635218973861
+        ],
+        "unknown_reaches_act": 0.06388888888888888,
+        "unknown_reaches_act_wilson95": [
+          0.04823769889236128,
+          0.08416917023480687
+        ]
+      },
+      "nested_classic": {
+        "class_accuracy": null,
+        "angle_mae_deg": null,
+        "angle_within_10": null,
+        "end_to_end_success": null,
+        "coverage_act": 0.12638888888888888,
+        "review_rate": 0.16111111111111112,
+        "reject_rate": 0.7125,
+        "n_act": 91,
+        "error_among_act": 1.0,
+        "error_among_act_wilson95": [
+          0.959494567784601,
+          1.0
+        ],
+        "automation_enabled": true,
+        "k": 3,
+        "thresholds": {
+          "min_class_confidence": 0.99,
+          "max_angle_uncertainty_deg": 30.0,
+          "unknown_distance": 23.084545278549207
+        },
+        "ece": null,
+        "unknown_rejected": 0.7125,
+        "unknown_rejected_wilson95": [
+          0.6783809017444715,
+          0.7443635218973861
+        ],
+        "unknown_reaches_act": 0.12638888888888888,
+        "unknown_reaches_act_wilson95": [
+          0.1040832778443698,
+          0.15266018647157995
+        ],
+        "selected_candidate": "knn:{'n_neighbors': 1}"
+      },
+      "recipe_resnet18": {
+        "class_accuracy": null,
+        "angle_mae_deg": null,
+        "angle_within_10": null,
+        "end_to_end_success": null,
+        "coverage_act": 0.022222222222222223,
+        "review_rate": 0.07777777777777778,
+        "reject_rate": 0.9,
+        "n_act": 16,
+        "error_among_act": 1.0,
+        "error_among_act_wilson95": [
+          0.8063865817272802,
+          1.0
+        ],
+        "automation_enabled": true,
+        "k": 3,
+        "thresholds": {
+          "min_class_confidence": 0.95,
+          "max_angle_uncertainty_deg": 20.0,
+          "unknown_distance": 10.180848875045772
+        },
+        "ece": null,
+        "unknown_rejected": 0.9,
+        "unknown_rejected_wilson95": [
+          0.8759190047560007,
+          0.9198352044522017
+        ],
+        "unknown_reaches_act": 0.022222222222222223,
+        "unknown_reaches_act_wilson95": [
+          0.013723980106468131,
+          0.03579182556151227
+        ]
+      },
+      "baseline_raw_1nn": {
+        "class_accuracy": null,
+        "angle_mae_deg": null,
+        "angle_within_10": null,
+        "end_to_end_success": null,
+        "coverage_act": 1.0,
+        "error_among_act": 1.0,
+        "error_among_act_wilson95": [
+          0.9946927615102529,
+          0.9999999999999999
+        ]
+      }
+    }
+  },
+  "git": {
+    "commit": "648059d16dfd046a8c290992378e4d04a97ad0d1",
+    "dirty": true,
+    "dirty_scope": [
+      "src/vision",
+      "scripts/train_vision.py",
+      "scripts/build_vision_notebook.py",
+      "scripts/build_vision_report.py",
+      "configs/vision.yaml",
+      "services/vision_api"
+    ],
+    "dirty_vision_paths": [
+      "configs/vision.yaml",
+      "scripts/build_vision_notebook.py",
+      "scripts/build_vision_report.py",
+      "scripts/train_vision.py",
+      "services/vision_api/app.py",
+      "src/vision/analysis.py",
+      "src/vision/experiments.py",
+      "src/vision/inference.py",
+      "src/vision/models.py",
+      "src/vision/recipe.py",
+      "src/vision/reject.py",
+      "src/vision/tracking.py"
+    ],
+    "n_unrelated_dirty_paths": 7,
+    "note": "dirty se evalúa solo sobre el código de visión; los demás cambios sin commit (agente) no afectan al artefacto"
+  },
+  "library_versions": {
+    "python": "3.12.0",
+    "numpy": "2.5.4",
+    "scikit-learn": "1.9.1",
+    "scikit-image": "0.26.0",
+    "opencv-python-headless": "5.0.0.93",
+    "joblib": "1.6.0",
+    "scipy": "1.18.1",
+    "mlflow": "3.17.2"
+  },
+  "code_snapshot_sha256": "9ebd010545e361e70d92675ecd91ba817b5f59e832aa386e100dde03352b1e7d",
+  "model_sha256": "769c608ccfd2ce94b2b0f14d3ed26e31e2f474e9022c220cff3deb7db7714d43",
+  "artifact_size_mb": 17.6
+}

@@ -2,7 +2,7 @@
 # La receta productiva (clasificador, PCA, procedimiento de umbrales y de k) está CONGELADA en
 # src/vision/recipe.py (RECIPE); los campos classifier/n_pca/k_angle_refine de abajo son solo informativos.
 # scripts/train_vision.py usa de aquí: version y angle_tolerance_deg.
-version: vision-1.0.1
+version: vision-1.0.2
 seed: 42
 classifier:
   name: logreg

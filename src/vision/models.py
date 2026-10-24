@@ -60,6 +60,7 @@ class VisionModel:
         self.nn_ = NearestNeighbors(n_neighbors=1).fit(Z)
         self.class_index_ = {c: np.where(self.ref_labels_ == c)[0] for c in np.unique(self.ref_labels_)}
         self.profiles_ = {c: distance_profile(Z[ix], self.ref_angles_[ix]) for c, ix in self.class_index_.items()}
+        self.class_scale_ = {c: _class_spacing(Z[ix], self.ref_angles_[ix]) for c, ix in self.class_index_.items()}
         self.symmetry_scores_ = {c: rotational_symmetry_score(Z[ix], self.ref_angles_[ix])
                                  for c, ix in self.class_index_.items()}
         self.symmetric_classes = sorted(str(c) for c, v in self.symmetry_scores_.items()
@@ -80,6 +81,7 @@ class VisionModel:
         d_nn, _ = self.nn_.kneighbors(Z, n_neighbors=1)
         out = {"label": pred, "confidence": conf, "nn_distance": d_nn[:, 0], "proba": proba,
                "angle": np.zeros(len(Z)), "angle_unc": np.zeros(len(Z)), "ambiguous": np.zeros(len(Z), bool),
+               "novelty_ratio": np.zeros(len(Z)),
                "similar": []}
         for i, z in enumerate(Z):
             ix = self.class_index_[pred[i]]
@@ -87,6 +89,8 @@ class VisionModel:
             r = estimate_angle(d, self.ref_angles_[ix], k_refine=self.k_angle_refine)
             out["angle"][i] = r["degrees"]
             out["angle_unc"][i] = implied_angular_gap(float(d.min()), self.profiles_[pred[i]])
+            scales = getattr(self, "class_scale_", None)  # artefactos ≤ 1.0.1 no lo tienen → razón 0 (compuerta inactiva)
+            out["novelty_ratio"][i] = float(d.min()) / scales[pred[i]] if scales else 0.0
             out["ambiguous"][i] = r["ambiguous"] or (pred[i] in self.symmetric_classes)
             if top_k:
                 dall = np.linalg.norm(self.ref_Z_ - z, axis=1)
@@ -117,6 +121,20 @@ class VisionModel:
         self.classes_ = self.clf_.classes_
         self._set_references(Z, labels, angs, ids)
         return self
+
+
+def _class_spacing(Z: np.ndarray, angles: np.ndarray) -> float:
+    """Espaciado típico de un objeto: mediana de la distancia de cada referencia a la referencia más cercana del mismo
+    objeto con OTRO ángulo. Normaliza la distancia de novedad por clase (2ª compuerta)."""
+    from scipy.spatial.distance import cdist
+
+    if len(angles) < 2:
+        return 1.0
+    D = cdist(Z, Z)
+    D[circular_error(angles[:, None], angles[None, :]) == 0] = np.inf
+    v = D.min(1)
+    v = v[np.isfinite(v)]
+    return float(np.median(v)) if len(v) else 1.0
 
 
 def rotational_symmetry_score(Z: np.ndarray, angles: np.ndarray, min_sep: float = 30.0) -> float:

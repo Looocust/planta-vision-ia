@@ -1,5 +1,5 @@
 """Genera docs/report/vision_report.pdf y docs/model_card.md a partir de docs/report/results.json,
-models/vision-1.0.1/metadata.json y las figuras de docs/report/figures/ (todas producidas por el notebook).
+models/<versión>/metadata.json y las figuras de docs/report/figures/ (todas producidas por el notebook).
 
 Las cifras de cabecera son las de la SELECCIÓN ANIDADA por protocolo (independientes); la configuración desplegada
 (src/vision/recipe.py) se reporta aparte con su salvedad de selección.
@@ -25,7 +25,10 @@ ROOT = Path(__file__).resolve().parents[1]
 REP = ROOT / "docs" / "report"
 FIG = REP / "figures"
 RES = json.loads((REP / "results.json").read_text())
-META = json.loads((ROOT / "models" / "vision-1.0.1" / "metadata.json").read_text())
+import yaml  # noqa: E402
+
+VERSION = yaml.safe_load((ROOT / "configs" / "vision.yaml").read_text())["version"]  # versión publicada que se documenta
+META = json.loads((ROOT / "models" / VERSION / "metadata.json").read_text())
 RS = RES["recipe_summary"]
 RR = RES["recipe"]["results"]["classic"]
 RN = RES["recipe"]["nested"]
@@ -145,7 +148,7 @@ def model_card_md() -> str:
         f"# Model card — {META['version']}",
         "",
         f"*Generada automáticamente por `scripts/build_vision_report.py` el {date.today().isoformat()} a partir de "
-        "`docs/report/results.json` y `models/vision-1.0.1/metadata.json`.*",
+        "`docs/report/results.json` y `models/<versión>/metadata.json`.*",
         "",
         "## Uso previsto",
         "Identificar el objeto (SKU) de una imagen de estación, estimar su ángulo de rotación en el plano [0, 360) con "
@@ -163,7 +166,7 @@ def model_card_md() -> str:
         "curva distancia-vs-ángulo del objeto. Es un **score heurístico en grados, no una cota del error**; su umbral se "
         "elige para que el riesgo observado en validación P(clase incorrecta o |error| > 10° | ACT) sea ≤ 2 %.",
         f"- Umbrales: confianza ≥ {th['min_class_confidence']}, score ≤ {th['max_angle_uncertainty_deg']}°, distancia de "
-        f"desconocido ≤ {th['unknown_distance']:.2f}. Validación de producción (90 conocidos paso 10° + 10 pseudo-desconocidos, "
+        f"desconocido ≤ {th['unknown_distance']:.2f}, razón de novedad ≤ {th.get('max_novelty_ratio', float('nan')):.2f}. Validación de producción (90 conocidos paso 10° + 10 pseudo-desconocidos, "
         f"vistas limpias + perturbadas): {tv['val_n_act']} ACT, error {pct(tv['val_error_among_act'], 2)} (IC95 "
         f"{ci(tv['val_error_wilson95'])}); pseudo-desconocidos que llegan a ACT {pct(ufa.get('rate'), 2)} (criterio ≤ 5 %). "
         "Esta validación comparte imágenes con tests de los protocolos, así que no es una estimación independiente.",
@@ -172,6 +175,8 @@ def model_card_md() -> str:
         f"`{META.get('code_snapshot_sha256', '')[:16]}…` (incluido como code_snapshot.tar.gz), commit "
         f"`{META.get('git', {}).get('commit', '')[:10]}` (árbol sucio: {META.get('git', {}).get('dirty')}); latencia p50 ≈ "
         f"{num(lc, 1)} ms/imagen en CPU.",
+        "- Trazabilidad: `uv run mlflow ui --backend-store-uri sqlite:///mlflow.db` (experimento `vision-coil100-v2`, "
+        "artefactos en `<repo>/mlruns`; el experimento histórico `vision-coil100` se conserva).",
         "",
         "## Datos",
         f"- COIL-100: 100 objetos × 72 vistas (paso 5°), 128×128 RGB, fondo oscuro y luz controlada. Hash de datos "
@@ -234,8 +239,8 @@ def model_card_md() -> str:
         "cobertura y elevan el riesgo observado.",
         "- Objetos rotacionalmente simétricos o con vistas opuestas parecidas: ángulo ambiguo → REVIEW.",
         "- Arco ciego (B) y 12 vistas por SKU (C): política efectiva sin ACT.",
-        "- Desconocidos casi duplicados de un conocido (obj61 ≈ obj92) y algunos parecidos a varios conocidos (obj69) llegan a "
-        "ACT; el criterio de falsa aceptación medido en validación (pseudo-desconocidos) no se trasladó por completo al test.",
+        "- Desconocidos casi duplicados de un conocido (obj61 ≈ obj92): la 2ª compuerta de novedad (1.0.2) reduce mucho su "
+        "paso a ACT pero no lo elimina; ver tabla de la compuerta en el reporte.",
         "- El score de incertidumbre no es una probabilidad ni una cota.",
         "",
         "## Cuándo NO usarlo",
@@ -314,9 +319,8 @@ def build_pdf(out: Path):
     para(f"Lectura: con referencias densas (A) se automatiza {pct(A['coverage_act'])} con error entre ACT observado "
          f"{pct(A['error_among_act'], 2)} (IC95 {ci(A['error_among_act_wilson95'])}). En B (arco ciego) y C (12 vistas) la política "
          f"efectiva es 0 ACT: la validación no aporta evidencia suficiente. En D estricto se rechaza {pct(Ds.get('unknown_rejected'))} "
-         f"de las vistas de objetos desconocidos y {pct(Ds.get('unknown_reaches_act'), 2)} llega a ACT (con la selección anidada: kNN; "
-         "todas de obj61 —casi duplicado de obj92— y obj69): el criterio de validación (0 % de pseudo-desconocidos a ACT) no se trasladó "
-         f"al test. En la variante D el error entre ACT observado ({pct(Dv['error_among_act'], 2)}) supera el objetivo de 2 %. "
+         f"de las vistas de objetos desconocidos y {pct(Ds.get('unknown_reaches_act'), 2)} llega a ACT (con el modelo elegido por la selección anidada; ver 6b): "
+         "el criterio medido con pseudo-desconocidos de validación no se traslada por completo al test. En la variante D el error entre ACT observado ({pct(Dv['error_among_act'], 2)}) supera el objetivo de 2 %. "
          f"La configuración desplegada (logística C=1) obtiene en A {pct(Ad['coverage_act'])} ACT con error {pct(Ad['error_among_act'], 2)}, "
          "pero su familia/C se eligió con validaciones agregadas que se solapan con tests de otros protocolos (sección 5). El artefacto "
          "se entrena con las 7.200 vistas y no tiene test propio.")
@@ -392,6 +396,32 @@ def build_pdf(out: Path):
          "IC). La fracción de desconocidos que llega a ACT no es cero y se mantiene en el mismo orden bajo perturbación. En planta, "
          "variaciones de iluminación mayores exigen ampliar la aumentación y recalibrar.")
 
+    st.append(Paragraph("6b. Segunda compuerta de novedad (desconocidos casi duplicados)", h2))
+    para("Los desconocidos que llegaban a ACT eran casi duplicados de un conocido (obj61 ≈ obj92). Compuerta adicional: razón = "
+         "distancia del query a la clase predicha / espaciado típico de esa clase (mediana de la distancia de cada referencia a la más "
+         "cercana del mismo objeto con otro ángulo); umbral = percentil 99 de la razón en las vistas conocidas de validación. Efecto en "
+         "la configuración desplegada (test):")
+    rows = [["Compuerta 2", "Protocolo", "Umbral razón", "% ACT", "Error|ACT", "Desc.→ACT", "IC95 desc.→ACT", "Conocidos rechazados"]]
+    for g in RES.get("novelty_gate_comparison", []):
+        thr = g["umbral razón"]
+        rows.append(["sí" if g["compuerta 2"] else "no", g["protocolo"], "—" if thr is None or thr > 1e6 else num(thr),
+                     pct(g["% ACT"]), pct(g["error|ACT"], 2), pct(g["desconocidos→ACT"], 2), ci(g["IC95 desc.→ACT"]),
+                     pct(g["conocidos rechazados"], 2)])
+    table(rows, [1.6 * cm, 1.6 * cm, 1.8 * cm, 1.4 * cm, 1.6 * cm, 1.7 * cm, 3 * cm, 2.4 * cm], font=6.8)
+    para("Se publica en vision-1.0.2 porque reduce de forma medible los desconocidos que llegan a ACT en D estricto sin cambiar la "
+         "cobertura ni el error de A (tabla). No elimina el problema: los casos que quedan son vistas de desconocidos que caen dentro "
+         "del espaciado típico de un conocido.")
+
+    st.append(Paragraph("6c. ¿Por qué la selección anidada (SVM) y la desplegada (logística) coinciden en A?", h2))
+    na, da = RN["A"], RR["A"]
+    para(f"En A ambos aciertan el 100 % de las clases del test. Ángulo, score de incertidumbre, clases ambiguas y distancia de novedad "
+         f"salen de la misma recuperación (mismas características, k = {na['k_selected_on_val']}), no del clasificador; las probabilidades "
+         f"solo alimentan la compuerta de confianza mínima. El SVM (Platt multiclase) es sub-confiado: ECE {num(na['ece'], 3)} frente a "
+         f"{num(da['ece'], 3)} de la logística, con confianza media muy inferior a su exactitud; su validación eligió confianza mínima "
+         f"{na['thresholds']['min_class_confidence']}, por lo que esa compuerta casi no actúa, y el corte angular distinto "
+         f"({na['thresholds']['max_angle_uncertainty_deg']}° vs {da['thresholds']['max_angle_uncertainty_deg']}°) afecta muy pocos casos. "
+         "Si se desplegara el SVM, su 'confidence' no debería leerse como probabilidad.")
+
     st.append(Paragraph("7. Ángulo", h2))
     para("Métrica: error circular min(|a−b|, 360−|a−b|), con MAE y fracción ≤ 10° sobre predicciones con clase correcta. Alternativas "
          "comparadas en validación: copiar el ángulo del vecino (k=1) o interpolar con 2–3 vecinos; interpolar ayuda con referencias "
@@ -440,12 +470,22 @@ def build_pdf(out: Path):
     para(f"Artefacto clásico: {num(RES['cost']['classic_artifact_mb'], 1)} MB (incluye referencias aumentadas y el snapshot de código). "
          f"Pesos ResNet18 fp32: {RES['cost']['resnet18_weights_mb']} MB (+ PyTorch). La línea base se mide como media por imagen en lote.")
     fig("08_latency", 12 * cm, "Figura 10. Latencia por imagen.")
-    rb, rc = RS["B"], RS["C"]
-    para(f"¿Justifica la brecha el costo? Con la misma configuración, ResNet18 clasifica mejor en B ({pct(rb['recipe_resnet18']['class_accuracy'], 2)} "
-         f"vs {pct(rb['recipe_classic']['class_accuracy'], 2)}) y C ({pct(rc['recipe_resnet18']['class_accuracy'], 2)} vs "
-         f"{pct(rc['recipe_classic']['class_accuracy'], 2)}), pero tampoco habilita automatizar B ni C; en A obtiene "
-         f"{pct(RS['A']['recipe_resnet18']['coverage_act'])} ACT frente a {pct(Ad['coverage_act'])} de la clásica. Solo su embedding cuesta "
-         "más en CPU que el pipeline clásico completo y añade ~45 MB de pesos más PyTorch. Producción = clásico; ResNet18 queda como referencia.")
+    ev = RES.get("modern_reference_evidence_A", {})
+    para("<b>Referencia moderna con trato justo.</b> ResNet18 recibe la misma aumentación, la misma validación limpia + perturbada y la "
+         "misma regla de riesgo. Resultado: la regla no habilita ACT en ningún protocolo. Evidencia (validación interna de A, misma "
+         "configuración):")
+    rows = [["Representación", "Exactitud val", "Confianza p5 (aciertos)", "Fallo angular | clase OK", "AUROC score→fallo", "MAE | clase OK"]]
+    for k, v in ev.items():
+        rows.append([k, pct(v["val_class_accuracy"], 2), num(v["confidence_p5_correct"], 3), pct(v["angle_fail_rate_given_correct_class"]),
+                     num(v["auroc_uncertainty_for_angle_fail"], 3), deg(v["angle_mae_given_correct_class"])])
+    table(rows, [3 * cm, 2.2 * cm, 3 * cm, 3 * cm, 2.8 * cm, 2.4 * cm], font=7)
+    minr = _min_val_risk("A")
+    para(f"ResNet18 clasifica igual o mejor y con confianza alta: el problema no es la confianza sino el <b>ángulo</b>. Sus embeddings "
+         f"de ImageNet son más invariantes a la rotación, por lo que con brecha de 10° y perturbaciones falla más el ángulo con la clase "
+         f"correcta; su riesgo mínimo observado con ≥ 50 ACT en la validación de A es {pct(minr, 2)} (> 2 %). En test limpio su MAE es "
+         f"menor, pero la regla se decide en la validación perturbada, que es la condición realista. Con más latencia en CPU (solo el "
+         "embedding supera al pipeline clásico completo), ~45 MB de pesos + PyTorch y sin automatización habilitada, la brecha no "
+         "justifica el costo: producción = clásico.")
 
     st.append(PageBreak())
     st.append(Paragraph("12. Model card", h2))

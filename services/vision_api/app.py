@@ -208,6 +208,7 @@ class ThresholdsIn(BaseModel):
     min_class_confidence: float | None = None
     max_angle_uncertainty_deg: float | None = None
     unknown_distance: float | None = None
+    max_novelty_ratio: float | None = None
 
 
 @app.put("/v1/admin/thresholds")

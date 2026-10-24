@@ -38,6 +38,7 @@ reportan con esa salvedad.
 """)
 
 code("""
+%matplotlib inline
 import sys, json, time, warnings
 from pathlib import Path
 ROOT = Path.cwd().parent if Path.cwd().name == "notebooks" else Path.cwd()
@@ -244,7 +245,7 @@ tabla deja ver ese trade-off.
 md("""
 ## 5. Configuración desplegada (receta congelada)
 
-Receta `classic-logreg-v1`: preprocesado + aumentación + PCA(150) + logística C=1 + el mismo procedimiento de
+Receta `classic-logreg-v2`: preprocesado + aumentación + PCA(150) + logística C=1 + 2ª compuerta de novedad + el mismo procedimiento de
 k/umbrales. **Salvedad:** familia y C se fijaron con la exploración inicial, que promedió validaciones de A–D; como
 los cuatro protocolos cubren conjuntamente todas las imágenes, esa elección tocó imágenes que son test de otros
 protocolos. Por eso estas cifras **no** se presentan como independientes; se comparan con las anidadas (arriba),
@@ -295,6 +296,53 @@ objetivo de 2 % (ver IC). La tasa de desconocidos que llegan a ACT se mantiene e
 perturbación, pero **no** es cero: los casi duplicados de un conocido pasan igual. En planta, cambios de
 iluminación mayores a ±20 % exigen recalibrar o ampliar la aumentación, y la compuerta de calidad debe vigilar
 brillo y nitidez.
+""")
+
+md("""
+### 5.1b Segunda compuerta de novedad (desconocidos casi duplicados)
+
+Los desconocidos que llegaban a ACT eran casi duplicados de un conocido (obj61 ≈ obj92). La distancia absoluta al
+vecino más cercano no los separa porque algunas clases tienen vistas muy espaciadas en el espacio de características
+y otras muy juntas. Segunda compuerta: **razón = distancia del query a la clase predicha / espaciado típico de esa
+clase** (mediana de la distancia de cada referencia a la referencia más cercana del mismo objeto con otro ángulo).
+Umbral = percentil 99 de la razón en las vistas **conocidas de validación** (≈1 % de conocidos rechazados por esta
+compuerta); no se mira el test. Se compara la configuración desplegada con y sin la compuerta.
+""")
+
+code("""
+GATE = []
+for gate in (False, True):
+    rec = {**vrec.RECIPE, "ratio_gate": gate}
+    for p in ("A", "D", "D_strict"):
+        r = R["results"]["classic"][p] if gate else vrec.evaluate_recipe(p, data, "classic", rec)
+        d = r["decision"]
+        GATE.append({"compuerta 2": gate, "protocolo": p, "umbral razón": round(r["thresholds"]["max_novelty_ratio"], 3),
+                     "% ACT": d["coverage_act"], "error|ACT": d["error_among_act"]["rate"],
+                     "desconocidos→ACT": d.get("unknown_reaches_act", {}).get("rate"),
+                     "IC95 desc.→ACT": d.get("unknown_reaches_act", {}).get("wilson95"),
+                     "conocidos rechazados": d.get("known_false_reject")})
+gate_df = pd.DataFrame(GATE); display(gate_df)
+""")
+
+md("""
+### 5.1c Selección anidada (SVM) vs. configuración desplegada (logística) en A
+
+En A ambos aciertan el 100 % de las clases en test; ángulo, score de incertidumbre, clases ambiguas y distancia de
+novedad salen de la **misma recuperación** (mismas características, mismo k), no del clasificador. Las
+probabilidades del clasificador solo entran en la compuerta de confianza mínima. El SVM con Platt multiclase es
+**sub-confiado** (confianza media muy por debajo de su exactitud → ECE alto), y su validación eligió un umbral de
+confianza bajo, por lo que esa compuerta casi no actúa; el corte angular distinto apenas cambia casos. Por eso las
+cifras son casi idénticas. Con el SVM, la confianza reportada en la API **no** debe leerse como probabilidad.
+""")
+
+code("""
+zs = va.load_outputs("nested_classic", "A", OUT_DIR); zl = outs_A = va.load_outputs("recipe_classic", "A", OUT_DIR)
+print({"SVM: confianza media": round(float(zs["confidence"].mean()), 3), "SVM: exactitud": round(float((zs["label"] == zs["true_label"]).mean()), 4),
+       "SVM: umbral confianza (val)": R["nested"]["A"]["thresholds"]["min_class_confidence"],
+       "SVM: vistas bajo ese umbral": int((zs["confidence"] < R["nested"]["A"]["thresholds"]["min_class_confidence"]).sum()),
+       "logística: confianza media": round(float(zl["confidence"].mean()), 3),
+       "ECE SVM / logística": (round(R["nested"]["A"]["ece"], 3), round(R["results"]["classic"]["A"]["ece"], 3)),
+       "umbral angular SVM / logística": (R["nested"]["A"]["thresholds"]["max_angle_uncertainty_deg"], R["results"]["classic"]["A"]["thresholds"]["max_angle_uncertainty_deg"])})
 """)
 
 md("### 5.2 Ángulo: error circular y elección de k en validación")
@@ -371,12 +419,14 @@ md("## 7. Costo: latencia y tamaño del artefacto")
 
 code("""
 import subprocess
-VERSION = "vision-1.0.1"
-# --force: regenera la MISMA versión aún no publicada desde este notebook (las versiones publicadas no se tocan)
-r = subprocess.run([sys.executable, str(ROOT / "scripts" / "train_vision.py"), "--force"], capture_output=True, text=True, cwd=ROOT)
+# El notebook NUNCA escribe en models/<versión publicada>: exporta una versión de desarrollo en data/runtime/.
+# Las versiones publicadas solo se crean con `uv run python scripts/train_vision.py` (sin --force no sobrescriben).
+DEV_ROOT = ROOT / "data" / "runtime" / "dev_models"; VERSION = "vision-dev"
+r = subprocess.run([sys.executable, str(ROOT / "scripts" / "train_vision.py"), "--version", VERSION, "--out", str(DEV_ROOT), "--force"],
+                   capture_output=True, text=True, cwd=ROOT)
 print(r.stdout[-1500:]); print(r.stderr[-800:] if r.returncode else "")
 from src.vision.inference import VisionPredictor
-pred = VisionPredictor.load(ROOT / "models" / VERSION)
+pred = VisionPredictor.load(DEV_ROOT / VERSION)
 rng = np.random.default_rng(42); sample = ds.images[rng.choice(len(ds.images), 100, replace=False)]
 lat = {"classic (pipeline completo, 1 imagen)": va.measure_latency(pred, sample)}
 lat["baseline píxeles 1-NN (media/imagen en lote)"] = {"mean_ms": R["baselines"]["A"]["mean_ms_per_image_in_batch"]}
@@ -384,17 +434,39 @@ rl = va.measure_resnet_latency(sample, n=50)
 lat["resnet18 CPU (solo embedding, 1 imagen)"] = rl["cpu"]
 if "mps" in rl: lat["resnet18 MPS (solo embedding, 1 imagen)"] = rl["mps"]
 display(pd.DataFrame(lat).T.round(2))
-size_mb = sum(f.stat().st_size for f in (ROOT / "models" / VERSION).glob("*") if f.is_file()) / 1e6
+size_mb = sum(f.stat().st_size for f in (DEV_ROOT / VERSION).glob("*") if f.is_file()) / 1e6
 print(f"Artefacto clásico (incluye code_snapshot): {size_mb:.1f} MB | pesos ResNet18 fp32: {rl['weights_mb_fp32']} MB (+ torch)")
 fig = va.latency_figure(lat); va.savefig(fig, "08_latency"); plt.show()
 COST = {"latency": lat, "classic_artifact_mb": size_mb, "resnet18_weights_mb": rl["weights_mb_fp32"]}
 """)
 
 md("""
-**¿Justifica la brecha el costo?** Con la misma configuración, ResNet18 (sin aumentación) clasifica mejor en B/C,
-pero tampoco habilita automatizar B ni C y en su validación no alcanza el criterio de riesgo en varios
-protocolos; solo su embedding ya cuesta más en CPU que el pipeline clásico completo y añade ~45 MB de pesos más
-PyTorch. **Producción = clásico**; ResNet18 queda como referencia.
+### 7.1 Referencia moderna con trato justo
+
+ResNet18 recibe **la misma** aumentación (copias perturbadas de train), la misma validación limpia + perturbada y
+la misma regla de riesgo (≤ 2 % con ≥ 50 ACT, criterio de desconocidos, 2ª compuerta). Si no habilita ACT, la
+celda siguiente muestra por qué, con evidencia de su propia validación.
+""")
+
+code("""
+for p in ("A", "D", "D_strict"):
+    r = R["results"]["resnet18"][p]; tv = r["threshold_validation"]
+    print(p, "automatización:", r["automation_enabled"], "| % ACT test:", round(r["decision"]["coverage_act"], 4),
+          "| riesgo mínimo en validación con ≥50 ACT:",
+          min([g["error_among_act"] for g in r["val_uncertainty_grid"] if g["n_act"] >= 50], default=None))
+EVID = va.modern_reference_evidence(data, "A")
+display(pd.DataFrame(EVID).T.round(4))
+""")
+
+md("""
+**Lectura.** ResNet18 clasifica igual o mejor que el pipeline clásico y con confianza alta, así que el problema
+**no** es la confianza: es el **ángulo**. Sus embeddings de ImageNet son más invariantes a la rotación, de modo que
+en la validación (brecha de 10° más perturbaciones) la fracción de vistas con clase correcta pero error angular
+> 10° es mayor que en el clásico, y en ningún umbral del score con ≥ 50 ACT su riesgo observado baja del 2 % → la
+regla desactiva la automatización. En test limpio de A su MAE es menor (1,98° vs ~2,9°), pero la regla se decide en
+validación perturbada, que es la condición realista. Con su costo (embedding más lento en CPU que todo el pipeline
+clásico, ~45 MB de pesos + PyTorch) y sin automatización habilitada, **la brecha no justifica el costo**; producción
+= clásico.
 """)
 
 md("## 8. Exportación del artefacto y registro")
@@ -411,9 +483,14 @@ results["error_analysis"] = fails
 results["protocols"] = {"D": {"classic": {"unknown_objects": [f"obj{o}" for o in spD["unknown_objects"]]}}}
 p = va.write_results(vexp.to_jsonable(results)); print("escrito", p)
 json.loads(p.read_text())  # JSON estricto (sin NaN)
-r = subprocess.run([sys.executable, str(ROOT / "scripts" / "train_vision.py"), "--force"], capture_output=True, text=True, cwd=ROOT)
+results["modern_reference_evidence_A"] = EVID
+results["novelty_gate_comparison"] = GATE
+p = va.write_results(vexp.to_jsonable(results))
+r = subprocess.run([sys.executable, str(ROOT / "scripts" / "train_vision.py"), "--version", VERSION, "--out", str(DEV_ROOT), "--force"],
+                   capture_output=True, text=True, cwd=ROOT)
 print(r.stdout[-1200:])
-meta = json.loads((ROOT / "models" / VERSION / "metadata.json").read_text())
+meta = json.loads((DEV_ROOT / VERSION / "metadata.json").read_text())
+print("Exportado a", DEV_ROOT / VERSION, "(desarrollo; las versiones publicadas en models/ no se tocan)")
 print({k: meta[k] for k in ("version", "classifier", "k_angle_refine", "thresholds", "symmetric_classes", "artifact_size_mb",
                             "model_sha256", "code_snapshot_sha256", "git")})
 print(f"Tiempo total del notebook: {(time.time() - T0) / 60:.1f} min")
@@ -423,7 +500,7 @@ md("""
 ## 9. Conclusiones
 
 * **Cifras independientes** = selección anidada por protocolo (sección 4). La configuración desplegada
-  (`vision-1.0.1`, logística C=1) se reporta aparte con su salvedad de selección.
+  (`vision-1.0.2`, logística C=1 + 2ª compuerta de novedad) se reporta aparte con su salvedad de selección.
 * **Robustez:** el preprocesado (mediana + supresión de fondo) y la aumentación eliminan la fragilidad ante ruido
   de sensor moderado; perturbaciones fuera del rango entrenado siguen degradando ángulo y cobertura (sección 5.1).
 * **Protocolos:** A y D son automatizables con riesgo observado bajo (IC en tablas); B y C no: la política efectiva

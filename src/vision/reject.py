@@ -14,10 +14,11 @@ class DecisionThresholds:
     min_class_confidence: float = 0.5
     max_angle_uncertainty_deg: float = 10.0
     unknown_distance: float = 1e9
+    max_novelty_ratio: float = 1e9  # 2ª compuerta de novedad (distancia a la clase / espaciado típico de la clase)
 
     def __post_init__(self):
         """Valida antes de usar: NaN/inf o fuera de rango abrirían la compuerta (p. ej. `100 > NaN` es False)."""
-        for k in ("min_class_confidence", "max_angle_uncertainty_deg", "unknown_distance"):
+        for k in ("min_class_confidence", "max_angle_uncertainty_deg", "unknown_distance", "max_novelty_ratio"):
             v = getattr(self, k)
             if isinstance(v, bool) or not isinstance(v, (int, float, np.integer, np.floating)) or not np.isfinite(v):
                 raise ValueError(f"{k} debe ser un número finito")
@@ -28,18 +29,20 @@ class DecisionThresholds:
             raise ValueError("max_angle_uncertainty_deg debe estar en [0, 180] (o -1 = automatización desactivada)")
         if self.unknown_distance <= 0:
             raise ValueError("unknown_distance debe ser > 0")
+        if self.max_novelty_ratio <= 0:
+            raise ValueError("max_novelty_ratio debe ser > 0")
 
     def to_dict(self) -> dict:
         return asdict(self)
 
 
 def decide(quality_ok: bool, nn_distance: float, confidence: float, angle_unc: float, ambiguous: bool,
-           th: DecisionThresholds) -> tuple[str, list[str]]:
+           th: DecisionThresholds, novelty_ratio: float = 0.0) -> tuple[str, list[str]]:
     """Orden: calidad → desconocido (REJECT) → clase/ángulo dudosos (REVIEW) → ACT."""
     if not quality_ok:
         return "REJECT", ["image_quality"]
     # comparaciones escritas para que un NaN en las entradas NUNCA produzca ACT
-    if not nn_distance <= th.unknown_distance:
+    if not (nn_distance <= th.unknown_distance and novelty_ratio <= th.max_novelty_ratio):
         return "REJECT", ["unknown_object"]
     reasons = []
     if not confidence >= th.min_class_confidence:
@@ -51,12 +54,19 @@ def decide(quality_ok: bool, nn_distance: float, confidence: float, angle_unc: f
     return ("REVIEW", reasons) if reasons else ("ACT", [])
 
 
-def decide_batch(nn_distance, confidence, angle_unc, ambiguous, th: DecisionThresholds) -> np.ndarray:
+def decide_out(out: dict, th: DecisionThresholds) -> np.ndarray:
+    """Decisión vectorizada a partir de la salida de VisionModel.predict."""
+    return decide_batch(out["nn_distance"], out["confidence"], out["angle_unc"], out["ambiguous"], th,
+                        out.get("novelty_ratio"))
+
+
+def decide_batch(nn_distance, confidence, angle_unc, ambiguous, th: DecisionThresholds, novelty_ratio=None) -> np.ndarray:
     nn_distance, confidence, angle_unc, ambiguous = map(np.asarray, (nn_distance, confidence, angle_unc, ambiguous))
+    novelty_ratio = np.zeros(len(confidence)) if novelty_ratio is None else np.asarray(novelty_ratio, float)
     dec = np.full(len(confidence), "ACT", dtype=object)
     review = ~(confidence >= th.min_class_confidence) | ~(angle_unc <= th.max_angle_uncertainty_deg) | ambiguous
     dec[review] = "REVIEW"
-    dec[~(nn_distance <= th.unknown_distance)] = "REJECT"
+    dec[~((nn_distance <= th.unknown_distance) & (novelty_ratio <= th.max_novelty_ratio))] = "REJECT"
     return dec
 
 
@@ -65,7 +75,8 @@ def select_thresholds(correct_class, angle_err, confidence, angle_unc, ambiguous
                       conf_grid=(0.0, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99),
                       unc_grid=(2.5, 5.0, 7.5, 10.0, 12.5, 15.0, 20.0, 30.0),
                       fallback_angle_uncertainty: float = 5.0, min_act: int = 50,
-                      max_unknown_false_accept: float = 0.05, min_unknown: int = 100) -> tuple[DecisionThresholds, dict]:
+                      max_unknown_false_accept: float = 0.05, min_unknown: int = 100,
+                      novelty_ratio=None, ratio_gate: bool = False, ratio_quantile: float = 99.0) -> tuple[DecisionThresholds, dict]:
     """Elige umbrales SOLO con datos de validación.
 
     unknown_distance: si hay pseudo-desconocidos en validación → maximiza Youden J; si no → percentil 99 de
@@ -94,11 +105,18 @@ def select_thresholds(correct_class, angle_err, confidence, angle_unc, ambiguous
         unk_d = float(cand[np.argmax(tpr - fpr)])
     else:
         unk_d = float(np.percentile(nn_distance[known], 99))
+    nr = np.zeros(len(confidence)) if novelty_ratio is None else np.asarray(novelty_ratio, float)
+    # 2ª compuerta de novedad: percentil 99 de la razón entre las vistas CONOCIDAS de validación que pasan la
+    # distancia (≈1 % de conocidos rechazados por esta compuerta); desactivada (1e9) si ratio_gate=False
+    max_ratio = 1e9
+    if ratio_gate and novelty_ratio is not None:
+        kk = known & (nn_distance <= unk_d)
+        max_ratio = float(np.percentile(nr[kk], ratio_quantile)) if kk.any() else 1e9
     success = correct_class & (angle_err <= ANGLE_TOLERANCE_DEG) & known
     # ¿la validación tiene señal angular comparable al test? (si casi nada queda dentro de ±10°,
     # la brecha de validación es mayor que la de test y el umbral angular no se puede afinar ahí)
     angle_informative = bool(success[correct_class].mean() >= 0.5) if correct_class.any() else False
-    accepted = nn_distance <= unk_d
+    accepted = (nn_distance <= unk_d) & (nr <= max_ratio)
     # etapa 1: confianza de clase → error de clase (incluye desconocidos aceptados) ≤ la mitad del presupuesto;
     # la otra mitad queda para el error angular
     class_budget = target_error / 2
@@ -123,8 +141,8 @@ def select_thresholds(correct_class, angle_err, confidence, angle_unc, ambiguous
     # etapa 2: incertidumbre angular → error extremo a extremo entre ACT ≤ target, con al menos min_act casos ACT
     table, best = [], None
     for u in (unc_grid if angle_informative else ()):
-        th = DecisionThresholds(conf_th, u, unk_d)
-        act = decide_batch(nn_distance, confidence, angle_unc, ambiguous, th) == "ACT"
+        th = DecisionThresholds(conf_th, u, unk_d, max_ratio)
+        act = decide_batch(nn_distance, confidence, angle_unc, ambiguous, th, nr) == "ACT"
         n_act, n_err = int(act.sum()), int((act & ~success).sum())
         err = n_err / n_act if n_act else float("nan")
         lo, hi = wilson_interval(n_err, n_act)
@@ -138,20 +156,20 @@ def select_thresholds(correct_class, angle_err, confidence, angle_unc, ambiguous
     unk = ~known
 
     def _stats(th_):
-        act_ = decide_batch(nn_distance, confidence, angle_unc, ambiguous, th_) == "ACT"
+        act_ = decide_batch(nn_distance, confidence, angle_unc, ambiguous, th_, nr) == "ACT"
         n_a, n_e = int(act_.sum()), int((act_ & ~success).sum())
         fa_k, fa_n = int((act_ & unk).sum()), int(unk.sum())
         return act_, n_a, n_e, fa_k, fa_n
 
     # criterio explícito de falsa aceptación de desconocidos (si la validación tiene pseudo-desconocidos):
     # ≤ max_unknown_false_accept con ≥ min_unknown casos; si no se cumple, se sube la confianza mínima
-    th = DecisionThresholds(conf_th, unc_th, unk_d)
+    th = DecisionThresholds(conf_th, unc_th, unk_d, max_ratio)
     _, n_act, n_err, fa_k, fa_n = _stats(th)
     if fa_n >= min_unknown and fa_k / fa_n > max_unknown_false_accept:
         for c in sorted(conf_grid):
             if c <= conf_th:
                 continue
-            t2 = DecisionThresholds(c, unc_th, unk_d)
+            t2 = DecisionThresholds(c, unc_th, unk_d, max_ratio)
             _, _, _, k2, _ = _stats(t2)
             if k2 / fa_n <= max_unknown_false_accept:
                 th = t2
@@ -174,7 +192,7 @@ def select_thresholds(correct_class, angle_err, confidence, angle_unc, ambiguous
     if not feasible:
         # política EFECTIVA: automatización desactivada (todo a REVIEW) → 0 ACT, riesgo null.
         # Las cifras del candidato descartado se conservan aparte.
-        th = DecisionThresholds(th.min_class_confidence, -1.0, unk_d)
+        th = DecisionThresholds(th.min_class_confidence, -1.0, unk_d, max_ratio)
         info.update(val_n_act=0, val_n_errors=0, val_coverage=0.0, val_error_among_act=None,
                     val_error_wilson95=[None, None], discarded_candidate=candidate)
         info["unknown_false_accept_val"] = {**ufa, "k": 0, "rate": 0.0 if fa_n else None,

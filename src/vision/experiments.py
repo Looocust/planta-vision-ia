@@ -55,6 +55,16 @@ def load_all(feature_cfg: FeatureConfig = FeatureConfig(), use_cache: bool = Tru
         else:
             banks[name] = extract_batch(perturb_batch(ds.images, seed), feature_cfg, n_jobs=8)
             np.savez(bp, X=banks[name], cfg=json.dumps(feature_cfg.to_dict()))
+    # mismos bancos para la referencia moderna (trato justo: misma aumentación y misma validación perturbada)
+    for name, seed in (("resnet18_aug", 1001), ("resnet18_pert", 2002)):
+        bp = RUNTIME / f"{name}_embeddings.npz"
+        if use_cache and bp.exists():
+            banks[name] = np.load(bp)["emb"]
+        else:
+            from .modern import resnet_embeddings
+
+            banks[name] = resnet_embeddings(perturb_batch(ds.images, seed))
+            np.savez(bp, emb=banks[name])
     rp = raw_pixels(ds.images, 32)
     emb_path = RUNTIME / "resnet18_embeddings.npz"
     if use_cache and emb_path.exists():
@@ -76,7 +86,9 @@ def _decision_metrics(out, true_names, true_angles, th: DecisionThresholds, is_u
     correct = (out["label"] == true_names) & ~unk
     err = circular_error(out["angle"], true_angles)
     success = correct & (err <= ANGLE_TOLERANCE_DEG)
-    dec = decide_batch(out["nn_distance"], out["confidence"], out["angle_unc"], out["ambiguous"], th)
+    from .reject import decide_out
+
+    dec = decide_out(out, th)
     act = dec == "ACT"
     res = {
         "coverage_act": float(act.mean()),
@@ -275,8 +287,9 @@ def run_all(data: dict | None = None, features=("classic", "resnet18"), protocol
     data = data or load_all()
     out_dir = Path(out_dir or RUNTIME / "experiments")
     out_dir.mkdir(parents=True, exist_ok=True)
-    mlflow.set_tracking_uri(mlflow_uri or f"sqlite:///{PROJECT_ROOT / 'mlflow.db'}")
-    mlflow.set_experiment("vision-coil100")
+    from .tracking import setup_mlflow
+
+    setup_mlflow(mlflow_uri)
     dhash = data_version_hash()
     results = {"data_version_hash": dhash, "seed": SEED, "feature_config": FeatureConfig().to_dict(),
                "grid": GRID, "protocols": {}}

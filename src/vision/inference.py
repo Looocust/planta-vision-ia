@@ -95,11 +95,12 @@ class VisionPredictor:
             unc = float(out["angle_unc"][0])
             amb = bool(out["ambiguous"][0])
             label = str(out["label"][0])
-            decision, reasons = decide(True, d_nn, conf, unc, amb, th)
-            known = d_nn <= th.unknown_distance
+            ratio = float(out["novelty_ratio"][0])
+            decision, reasons = decide(True, d_nn, conf, unc, amb, th, ratio)
+            known = d_nn <= th.unknown_distance and ratio <= th.max_novelty_ratio
             resp.update(
                 object={"label": label if known else None, "confidence": round(conf, 4), "known": bool(known),
-                        "novelty_distance": round(d_nn, 3)},
+                        "novelty_distance": round(d_nn, 3), "novelty_ratio": round(ratio, 3)},
                 angle={"degrees": (round(float(out["angle"][0]), 1) % 360.0) if known else None,
                        "uncertainty_deg": round(unc, 2) if known else None, "ambiguous": amb if known else False},
                 decision=decision, reasons=reasons,

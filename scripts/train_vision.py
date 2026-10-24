@@ -1,11 +1,12 @@
 """Entrena y exporta el modelo productivo de visión con TODAS las vistas de los 100 objetos.
 
-Uso:  uv run python scripts/train_vision.py [--version vision-1.0.0] [--out models/]
+Uso:  uv run python scripts/train_vision.py [--version vision-1.0.2] [--out models/] [--force]
 
 1. Descarga/verifica el dataset si falta (SHA-256) y calcula el hash de versión de datos.
 2. Aplica la RECETA CONGELADA (src/vision/recipe.py): k angular y umbrales elegidos en una validación
    (90 objetos con paso 10° + 10 pseudo-desconocidos, semilla 43).
-3. Re-entrena con las 7.200 vistas y exporta models/<version>/ (model.joblib + metadata.json con SHA-256 del
+3. Re-entrena con las 7.200 vistas y exporta models/<version>/ (versión por defecto: configs/vision.yaml;
+   nunca sobrescribe una versión existente salvo --force) (model.joblib + metadata.json con SHA-256 del
    modelo, commit git, versiones de librerías) y lo registra en MLflow (incluido model.joblib).
 """
 from __future__ import annotations
@@ -164,7 +165,9 @@ def main(argv=None) -> Path:
                          "elegidos con validación agregada que se solapa con tests de otros protocolos."),
         "changelog": ["1.0.0: receta inicial", "1.0.1: preprocesado robusto a ruido (mediana 3×3 + supresión de fondo), "
                       "aumentación en train, umbrales calibrados con validación perturbada, criterio de falsa "
-                      "aceptación de desconocidos ≤5 %"],
+                      "aceptación de desconocidos ≤5 %",
+                      "1.0.2: 2ª compuerta de novedad (distancia a la clase / espaciado típico de la clase, percentil 99 "
+                      "de conocidos en validación) contra desconocidos casi duplicados"],
         "metrics_summary": recipe_metrics,
         "git": git,
         "library_versions": versions,
@@ -173,6 +176,7 @@ def main(argv=None) -> Path:
     if target.exists() and not args.force:
         raise SystemExit(f"{target} ya existe: las versiones publicadas no se sobrescriben (use --force solo para "
                          "regenerar una versión no publicada, o cambie --version)")
+    target.parent.mkdir(parents=True, exist_ok=True)
     snap, snap_sha = _code_snapshot(target.parent / f".{version}.code.tar.gz")
     meta["code_snapshot_sha256"] = snap_sha
     pred = VisionPredictor(final, meta)
@@ -184,8 +188,9 @@ def main(argv=None) -> Path:
     try:  # trazabilidad en MLflow (mismo store que los experimentos)
         import mlflow
 
-        mlflow.set_tracking_uri(f"sqlite:///{ROOT / 'mlflow.db'}")
-        mlflow.set_experiment("vision-coil100")
+        from src.vision.tracking import setup_mlflow
+
+        setup_mlflow()
         with mlflow.start_run(run_name=f"train-{version}"):
             mlflow.set_tags({"stage": "production", "version": version, "git_commit": git["commit"],
                              "git_dirty": str(git["dirty"]), "model_sha256": model_sha, "recipe": recipe["name"]})

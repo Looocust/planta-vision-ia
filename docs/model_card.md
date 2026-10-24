@@ -1,18 +1,19 @@
-# Model card — vision-1.0.1
+# Model card — vision-1.0.2
 
-*Generada automáticamente por `scripts/build_vision_report.py` el 2026-10-24 a partir de `docs/report/results.json` y `models/vision-1.0.1/metadata.json`.*
+*Generada automáticamente por `scripts/build_vision_report.py` el 2026-10-24 a partir de `docs/report/results.json` y `models/<versión>/metadata.json`.*
 
 ## Uso previsto
 Identificar el objeto (SKU) de una imagen de estación, estimar su ángulo de rotación en el plano [0, 360) con un score de incertidumbre en grados, y devolver las vistas de referencia más parecidas como evidencia. La salida incluye una decisión **ACT / REVIEW / REJECT**: el robot solo recibe un comando `PICK` con ángulo cuando la decisión es ACT; en cualquier otro caso recibe `HOLD` y el caso va a cola humana. ACT no garantiza acierto: el riesgo residual observado se reporta abajo.
 
 ## Modelo desplegado
-- Configuración `classic-logreg-v1` (`src/vision/recipe.py`): preprocesado (mediana 3×3 + máscara (Gauss 5×5, gris>40, apertura 3×3) + fondo a 0) → HSV(16x4x4)+HOG(64px,9or,8x8)+LBP(u8,2x2)+Hu → StandardScaler → PCA(150) → `logreg` {"C": 1.0}.
+- Configuración `classic-logreg-v2` (`src/vision/recipe.py`): preprocesado (mediana 3×3 + máscara (Gauss 5×5, gris>40, apertura 3×3) + fondo a 0) → HSV(16x4x4)+HOG(64px,9or,8x8)+LBP(u8,2x2)+Hu → StandardScaler → PCA(150) → `logreg` {"C": 1.0}.
 - Aumentación: 1 copia por vista de train: ruido σ~U(0,6), brillo ×U(0.8,1.2), blur σ~U(0.5,1) con p=0.3; validación = vistas limpias + 1 copia perturbada con la misma distribución.
 - Ángulo: recuperación condicionada al objeto; k de interpolación elegido en validación (artefacto: k = 3).
 - Score de incertidumbre angular: separación angular equivalente a la distancia al vecino más cercano según la curva distancia-vs-ángulo del objeto. Es un **score heurístico en grados, no una cota del error**; su umbral se elige para que el riesgo observado en validación P(clase incorrecta o |error| > 10° | ACT) sea ≤ 2 %.
-- Umbrales: confianza ≥ 0.99, score ≤ 30.0°, distancia de desconocido ≤ 19.84. Validación de producción (90 conocidos paso 10° + 10 pseudo-desconocidos, vistas limpias + perturbadas): 5693 ACT, error 1.81% (IC95 [1.49, 2.19]%); pseudo-desconocidos que llegan a ACT 4.10% (criterio ≤ 5 %). Esta validación comparte imágenes con tests de los protocolos, así que no es una estimación independiente.
+- Umbrales: confianza ≥ 0.95, score ≤ 20.0°, distancia de desconocido ≤ 19.84, razón de novedad ≤ 1.37. Validación de producción (90 conocidos paso 10° + 10 pseudo-desconocidos, vistas limpias + perturbadas): 5737 ACT, error 1.45% (IC95 [1.17, 1.79]%); pseudo-desconocidos que llegan a ACT 2.92% (criterio ≤ 5 %). Esta validación comparte imágenes con tests de los protocolos, así que no es una estimación independiente.
 - Clases con ambigüedad rotacional (→ REVIEW): obj35, obj47, obj67, obj84, obj94, obj95, obj98.
-- Artefacto: 17.59 MB, SHA-256 `4fce6c32cb4abe36…`, snapshot de código `a9cd408b9d533e72…` (incluido como code_snapshot.tar.gz), commit `1ca174a636` (árbol sucio: True); latencia p50 ≈ 18.0 ms/imagen en CPU.
+- Artefacto: 17.51 MB, SHA-256 `769c608ccfd2ce94…`, snapshot de código `9ebd010545e361e7…` (incluido como code_snapshot.tar.gz), commit `648059d16d` (árbol sucio: True); latencia p50 ≈ 13.6 ms/imagen en CPU.
+- Trazabilidad: `uv run mlflow ui --backend-store-uri sqlite:///mlflow.db` (experimento `vision-coil100-v2`, artefactos en `<repo>/mlruns`; el experimento histórico `vision-coil100` se conserva).
 
 ## Datos
 - COIL-100: 100 objetos × 72 vistas (paso 5°), 128×128 RGB, fondo oscuro y luz controlada. Hash de datos `e9e73124fbf0e964…`. Semilla 42.
@@ -27,8 +28,8 @@ Familia, hiperparámetros, k y umbrales se eligen solo con la validación intern
 | A · Interpolación | svm_rbf:{'C': 10.0} | 100.00% | 2.91° | 98.5% | 90.3% | 3251 | 0.09% [0.03, 0.27]% |
 | B · Sector ciego 60° | logreg:{'C': 1.0} | 96.17% | 65.52° | 28.5% | 0.0% | 0 | N/A N/A |
 | C · Escasez (12 vistas) | logreg:{'C': 0.1} | 98.78% | 13.01° | 69.7% | 0.0% | 0 | N/A N/A |
-| D estricto · desconocidos | knn:{'n_neighbors': 1} | N/A | — | N/A | 12.6% | 91 | 100.00% [95.95, 100.00]% |
-| D variante · mixto | knn:{'n_neighbors': 1} | 99.63% | 2.74° | 98.3% | 74.9% | 2967 | 2.56% [2.05, 3.19]% |
+| D estricto · desconocidos | knn:{'n_neighbors': 1} | N/A | — | N/A | 1.0% | 7 | 100.00% [64.57, 100.00]% |
+| D variante · mixto | knn:{'n_neighbors': 1} | 99.63% | 2.74° | 98.3% | 74.9% | 2966 | 2.56% [2.05, 3.20]% |
 
 ## Métricas de la configuración desplegada (con salvedad)
 
@@ -39,10 +40,10 @@ Familia/C de la configuración desplegada se fijaron con validaciones agregadas 
 | A · Interpolación | 100.00% | 2.91° | 90.3% | 3250 | 0.09% [0.03, 0.27]% |
 | B · Sector ciego 60° | 96.17% | 65.52° | 0.0% | 0 | N/A N/A |
 | C · Escasez (12 vistas) | 98.83% | 13.01° | 0.0% | 0 | N/A N/A |
-| D estricto · desconocidos | N/A | — | 6.4% | 46 | 100.00% [92.29, 100.00]% |
-| D variante · mixto | 100.00% | 2.90° | 73.7% | 2917 | 0.93% [0.64, 1.34]% |
+| D estricto · desconocidos | N/A | — | 1.0% | 7 | 100.00% [64.57, 100.00]% |
+| D variante · mixto | 100.00% | 2.90° | 73.6% | 2916 | 0.93% [0.64, 1.34]% |
 
-Desconocidos (selección anidada) — D estricto: rechazados 71.2%, llegan a ACT 12.64% (IC95 [10.41, 15.27]%). D variante: AUROC combinado 0.975, conocidos rechazados 1.79%.
+Desconocidos (selección anidada) — D estricto: rechazados 99.0%, llegan a ACT 0.97% (IC95 [0.47, 1.99]%). D variante: AUROC combinado 0.975, conocidos rechazados 1.94%.
 
 ## Robustez a perturbaciones (configuración desplegada, test de A)
 
@@ -65,7 +66,7 @@ Aumentación cubre ruido σ≤6 y brillo ×0.8–1.2; σ=8 y ×0.7/×1.3 son ext
 - Perturbaciones fuera del rango de aumentación (ruido fuerte, cambios de brillo > ±20 %) degradan ángulo y cobertura y elevan el riesgo observado.
 - Objetos rotacionalmente simétricos o con vistas opuestas parecidas: ángulo ambiguo → REVIEW.
 - Arco ciego (B) y 12 vistas por SKU (C): política efectiva sin ACT.
-- Desconocidos casi duplicados de un conocido (obj61 ≈ obj92) y algunos parecidos a varios conocidos (obj69) llegan a ACT; el criterio de falsa aceptación medido en validación (pseudo-desconocidos) no se trasladó por completo al test.
+- Desconocidos casi duplicados de un conocido (obj61 ≈ obj92): la 2ª compuerta de novedad (1.0.2) reduce mucho su paso a ACT pero no lo elimina; ver tabla de la compuerta en el reporte.
 - El score de incertidumbre no es una probabilidad ni una cota.
 
 ## Cuándo NO usarlo

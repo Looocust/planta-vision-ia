@@ -19,11 +19,11 @@ import numpy as np
 from .angle import circular_error
 from .data import protocol_split, validation_split
 from .models import VisionModel, evaluate_predictions
-from .reject import (ANGLE_TOLERANCE_DEG, auroc, decide_batch, expected_calibration_error, risk_coverage,
+from .reject import (ANGLE_TOLERANCE_DEG, auroc, decide_batch, decide_out, expected_calibration_error, risk_coverage,
                      select_thresholds, unreliable_angle_classes, wilson_interval)
 
 RECIPE = {
-    "name": "classic-logreg-v1",
+    "name": "classic-logreg-v2",
     "features": "HSV(16x4x4)+HOG(64px,9or,8x8)+LBP(u8,2x2)+Hu → StandardScaler → PCA(150)",
     "clf": "logreg",
     "params": {"C": 1.0},
@@ -32,8 +32,10 @@ RECIPE = {
     "target_error": 0.02,
     "min_act": 50,
     "unreliable_max_fail_rate": 0.25,
+    "novelty_gate_2": "razón distancia-a-la-clase / espaciado típico de la clase ≤ percentil 99 de conocidos en validación",
     "preprocessing": "mediana 3×3 + máscara (Gauss 5×5, gris>40, apertura 3×3) + fondo a 0",
     "augment": True,
+    "ratio_gate": True,
     "augmentation": "1 copia por vista de train: ruido σ~U(0,6), brillo ×U(0.8,1.2), blur σ~U(0.5,1) con p=0.3; "
                     "validación = vistas limpias + 1 copia perturbada con la misma distribución",
 }
@@ -77,7 +79,8 @@ def calibrate_recipe(X, names, angles, ids, fit, val, val_unk=None, recipe: dict
     amb = out["ambiguous"] | np.isin(out["label"], flagged)
     correct = (out["label"] == nv) & kn
     th, info = select_thresholds(correct, err, out["confidence"], out["angle_unc"], amb, out["nn_distance"],
-                                 is_unknown=unk_v, target_error=recipe["target_error"], min_act=recipe["min_act"])
+                                 is_unknown=unk_v, target_error=recipe["target_error"], min_act=recipe["min_act"],
+                                 novelty_ratio=out["novelty_ratio"], ratio_gate=recipe.get("ratio_gate", False))
     succ = correct & (err <= ANGLE_TOLERANCE_DEG)
     ece, _ = expected_calibration_error(out["confidence"][kn], correct[kn])
     return {"k": k, "k_table": k_table, "flagged": flagged, "thresholds": th, "threshold_info": info,
@@ -95,7 +98,7 @@ def decision_report(out, true_names, true_angles, th, is_unknown) -> dict:
     unk = np.asarray(is_unknown, bool)
     correct = (out["label"] == true_names) & ~unk
     success = correct & (circular_error(out["angle"], true_angles) <= ANGLE_TOLERANCE_DEG)
-    dec = decide_batch(out["nn_distance"], out["confidence"], out["angle_unc"], out["ambiguous"], th)
+    dec = decide_out(out, th)
     act = dec == "ACT"
     r = {
         "n": int(len(dec)), "n_act": int(act.sum()),
@@ -123,8 +126,8 @@ def uncertainty_sweep(out, true_names, true_angles, th, is_unknown, grid=(2.5, 5
     success = (out["label"] == true_names) & ~unk & (circular_error(out["angle"], true_angles) <= ANGLE_TOLERANCE_DEG)
     rows = []
     for u in grid:
-        t = DecisionThresholds(th.min_class_confidence, u, th.unknown_distance)
-        act = decide_batch(out["nn_distance"], out["confidence"], out["angle_unc"], out["ambiguous"], t) == "ACT"
+        t = DecisionThresholds(th.min_class_confidence, u, th.unknown_distance, th.max_novelty_ratio)
+        act = decide_out(out, t) == "ACT"
         c = _ci((act & ~success).sum(), act.sum())
         rows.append({"max_angle_uncertainty_deg": u, "coverage": float(act.mean()), **{f"risk_{k}": v for k, v in c.items()}})
     return rows
@@ -178,7 +181,7 @@ def evaluate_recipe(protocol: str, data: dict, feature_key: str = "classic", rec
     res["elapsed_s"] = time.time() - t0
     if out_dir is not None:
         np.savez(out_dir / f"{tag}_{feature_key}_{protocol}.npz", label=out["label"], confidence=out["confidence"],
-                 nn_distance=out["nn_distance"], angle=out["angle"], angle_unc=out["angle_unc"],
+                 nn_distance=out["nn_distance"], novelty_ratio=out["novelty_ratio"], angle=out["angle"], angle_unc=out["angle_unc"],
                  ambiguous=out["ambiguous"], decision=dec, true_label=names[te], true_angle=angles[te],
                  is_unknown=te_unk)
     return res
@@ -220,7 +223,7 @@ def robustness_eval(model, th, protocol, te, te_unk, data) -> dict:
             ev = evaluate_predictions({k: out[k][kn] for k in ("label", "angle")}, names[te][kn], ds.angles[te][kn])
             row.update(class_accuracy=ev["class_accuracy"], angle_mae_deg=ev["angle_mae_deg"],
                        end_to_end_success=ev["end_to_end_success"],
-                       reject_rate_known=float(np.mean(~(out["nn_distance"][kn] <= th.unknown_distance))))
+                       reject_rate_known=float(np.mean(decide_out(out, th)[kn] == "REJECT")))
         if te_unk.any():
             row["unknown_reaches_act"] = dr["unknown_reaches_act"]
             row["unknown_rejected"] = dr["unknown_rejected"]
@@ -299,8 +302,9 @@ def run_recipe_all(data: dict, features=("classic", "resnet18"), protocols=("A",
 
     out_dir = Path(out_dir or PROJECT_ROOT / "data" / "runtime" / "experiments")
     out_dir.mkdir(parents=True, exist_ok=True)
-    mlflow.set_tracking_uri(mlflow_uri or f"sqlite:///{PROJECT_ROOT / 'mlflow.db'}")
-    mlflow.set_experiment("vision-coil100")
+    from .tracking import setup_mlflow
+
+    setup_mlflow(mlflow_uri)
     dhash = data_version_hash()
     res = {"recipe": RECIPE, "results": {}, "baselines": {}, "nested": {}}
     for p in protocols:

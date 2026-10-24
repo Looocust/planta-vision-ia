@@ -5,9 +5,6 @@ import json
 import time
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from scipy.spatial.distance import cdist  # noqa: E402
@@ -484,3 +481,33 @@ def robustness_table(rob: dict) -> list[dict]:
             row["desconocidos rechazados"] = r["unknown_rejected"]["rate"]
         rows.append(row)
     return rows
+
+
+def modern_reference_evidence(data: dict, protocol: str = "A") -> dict:
+    """¿Por qué ResNet18 no habilita ACT? Compara, en la VALIDACIÓN interna del protocolo (limpia + perturbada),
+    la confianza de clase y la fiabilidad angular de ambas representaciones con la misma configuración."""
+    from sklearn.metrics import roc_auc_score
+
+    from .data import validation_split
+    from .models import VisionModel
+    from .recipe import _stack, _tile
+
+    ds, names = data["ds"], data["names"]
+    vs = validation_split(ds.labels, ds.angles, protocol)
+    fit, val = vs["fit"], vs["val"]
+    res = {}
+    for feat in ("classic", "resnet18"):
+        X, Xa, Xp = data[feat], data[f"{feat}_aug"], data[f"{feat}_pert"]
+        m = VisionModel("logreg", {"C": 1.0}, k_angle_refine=2)
+        m.fit(_stack(X, fit, Xa), _tile(names, fit, Xa), _tile(ds.angles, fit, Xa), _tile(ds.image_ids, fit, Xa))
+        o = m.predict(_stack(X, val, Xp), top_k=0)
+        nv, av = _tile(names, val, Xp), _tile(ds.angles, val, Xp)
+        ok = o["label"] == nv
+        err = circular_error(o["angle"], av)
+        bad = ok & (err > 10)
+        res[feat] = {"val_class_accuracy": float(ok.mean()),
+                     "confidence_p5_correct": float(np.percentile(o["confidence"][ok], 5)),
+                     "angle_fail_rate_given_correct_class": float(bad[ok].mean()),
+                     "auroc_uncertainty_for_angle_fail": float(roc_auc_score(bad[ok], o["angle_unc"][ok])),
+                     "angle_mae_given_correct_class": float(err[ok].mean())}
+    return res

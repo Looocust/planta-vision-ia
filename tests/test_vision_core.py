@@ -147,3 +147,13 @@ def test_angle_never_serialized_as_360():
 
     assert (round(359.963, 1) % 360.0) == 0.0
     assert -180 < _rotate_cmd(359.96) <= 180
+
+
+def test_second_novelty_gate():
+    th = DecisionThresholds(0.5, 10, 20, max_novelty_ratio=2.0)
+    assert decide(True, 5, 0.9, 5, False, th, novelty_ratio=1.0)[0] == "ACT"
+    assert decide(True, 5, 0.9, 5, False, th, novelty_ratio=3.0) == ("REJECT", ["unknown_object"])
+    assert decide(True, 5, 0.9, 5, False, th, novelty_ratio=float("nan"))[0] == "REJECT"
+    assert decide_batch([5.0, 5.0], [0.9, 0.9], [5.0, 5.0], [False, False], th, [1.0, 3.0]).tolist() == ["ACT", "REJECT"]
+    with pytest.raises(ValueError):
+        DecisionThresholds(max_novelty_ratio=0.0)

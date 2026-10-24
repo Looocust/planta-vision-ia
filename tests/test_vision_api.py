@@ -148,7 +148,8 @@ def test_admin_thresholds_and_auth(client):
 
 @pytest.mark.parametrize("bad", [{"max_angle_uncertainty_deg": "NaN"}, {"min_class_confidence": "Infinity"},
                                  {"min_class_confidence": 1.5}, {"unknown_distance": -3},
-                                 {"max_angle_uncertainty_deg": 500}, {"min_class_confidence": 0.1, "unknown_distance": "NaN"}])
+                                 {"max_angle_uncertainty_deg": 500}, {"min_class_confidence": 0.1, "unknown_distance": "NaN"},
+                                 {"max_novelty_ratio": 0}, {"max_novelty_ratio": "NaN"}])
 def test_admin_thresholds_reject_invalid_atomically(client, bad):
     h = {"X-Admin-Token": "test-token"}
     before = client.get("/v1/model").json()["thresholds"]
