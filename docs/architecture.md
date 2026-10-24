@@ -74,9 +74,10 @@ Detalle: [Azure](cloud/azure_architecture.md) · [AWS](cloud/aws_architecture.md
 
 - La nube cuesta **≈ USD 640/mes por planta en East US 2 y ≈ 740 en Spain Central** (Azure, 1 estación, precios de
   lista verificados en su mayoría) ≈ **USD 0,002 por objeto**.
-- Con 95% de automatización (**placeholder**, a reemplazar por la cobertura medida), el ahorro es **≈ 41% en Colombia**
-  (payback ≈ 50 meses con 1 estación, ≈ 18 con 5) y **≈ 62% en España** (payback ≈ 6,6 meses).
-- Con **80%** de automatización el proyecto **no se paga**: la cola de revisión se come el ahorro. La métrica que manda
+- Con el **92,2% de automatización medido** (cobertura ACT en test), el ahorro es **≈ 29% en Colombia** (payback ≈ 71 meses
+  con 1 estación, ≈ 22 con 5) y **≈ 50% en España** (payback ≈ 8,3 meses).
+- El equilibrio está en **≈ 86% (Colombia) / 81% (España)**. Con el **77%** medido cuando hay objetos desconocidos
+  mezclados el proyecto **no se paga**: la cola de revisión se come el ahorro. La métrica que manda
   es el % de objetos que el sistema resuelve **de forma segura**.
 
 ## 7. Cómo ejecutarlo

@@ -264,8 +264,8 @@ SUPUESTOS: list = [
     ("factor_cobertura", "Factor de cobertura (vacaciones, ausentismo, relevos)", 1.15, "×", "Supuesto", "Cubrir 1 puesto requiere ~15% más horas pagadas que horas de puesto", NUM),
     ("throughput_obj_h", "Objetos procesados por hora por estación", 600, "obj/h", "Supuesto", "1 objeto cada 6 s. Ajustar con el dato real de la línea", INT),
     "Desempeño del sistema automático",
-    ("pct_automatizado", "% de objetos resueltos sin humano (decisión ACT correcta)", 0.95, "%", "Placeholder",
-     "PLACEHOLDER sin evidencia: reemplazar por la cobertura ACT medida en test (docs/report). Ver Sensibilidad 80-99%", PCT),
+    ("pct_automatizado", "% de objetos resueltos sin humano (decisión ACT correcta)", 0.922, "%", "Medido",
+     "Cobertura ACT medida en test, protocolo A, receta classic-logreg-v1 (docs/report/results.json): 92,2 % con 0,21 % de error entre ACT. Con desconocidos mezclados (D variante) baja a 77,0 %. Planta real: validar en piloto. Ver Sensibilidad", PCT),
     ("min_caso_revision", "Minutos humanos por caso en cola (REVIEW/REJECT)", 0.5, "min/caso", "Supuesto", "Mirar evidencia + reubicar el objeto desviado (~30 s)", NUM),
     ("fraccion_atencion", "Fracción de las horas de operación de la estación que requiere una persona (supervisión itinerante, atascos, reabastecer)", 0.10, "% horas puesto", "Supuesto",
      "Horas residuales = fracción × horas_mes × factor_cobertura (≈ 60 h pagadas/mes). NO es FTE", PCT),
@@ -349,7 +349,7 @@ for item in SUPUESTOS:
     sup.cell(row=row, column=7, value=FECHA)
     name(sup, f"C{row}", nm)
     if nm == "pct_automatizado":
-        c.comment = Comment("Coordinador: reemplazar por la cobertura ACT medida en test (reporte del modelo).", "FinOps")
+        c.comment = Comment("Medido en COIL-100 (protocolo A). En planta real debe re-medirse en el piloto.", "FinOps")
     row += 1
 widths(sup, [24, 58, 16, 13, 12, 70, 12])
 sup.freeze_panes = "A5"
@@ -617,6 +617,28 @@ cloud_sheet(
     AWS,
 )
 
+# ------------------------------------------------------------ fórmulas reutilizables
+MANT = "estaciones*plantas*(capex_pc+capex_camara)*pct_mant_hw/12"
+CAPEX = "(estaciones*plantas*(capex_pc+capex_camara+capex_integracion)+capex_planta*plantas)"
+
+
+def cola(p: str, s_: str) -> str:
+    return f"estaciones*plantas*throughput_obj_h*horas_mes*(1-{p})*min_caso_revision/60*costo_hora_{s_}"
+
+
+def ahorro(p: str, s_: str, u: str, cloud: str) -> str:
+    """Ahorro mensual con % automatizado = p (la nube escala el almacenamiento de imágenes con p)."""
+    nube = (f"({cloud}_total_mes{u}-{cloud}_img_mes{u}+{cloud}_img_mes{u}*((1-{p})+{p}*muestreo_act)/pct_subidas)*plantas")
+    supv = f"estaciones*plantas*fraccion_atencion*horas_mes*factor_cobertura*costo_hora_{s_}"
+    return f"actual_mes_{s_}-({nube}+{MANT}+{cola(p, s_)}+{supv})"
+
+
+def equilibrio(s_: str, u: str, cloud: str) -> str:
+    """% automatizado con ahorro = 0 (el ahorro es lineal en p)."""
+    a0, a1 = ahorro("0", s_, u, cloud), ahorro("1", s_, u, cloud)
+    return f"-({a0})/(({a1})-({a0}))"
+
+
 # ============================================================ COMPARATIVO
 cmp_ = wb.create_sheet("Comparativo")
 title(
@@ -664,6 +686,12 @@ cmp_[f"B{r}"] = f"=(SUM(B6:B8)-SUM(C6:C8))/B13"
 cmp_[f"D{r}"] = f"=(SUM(D6:D8)-SUM(E6:E8))/D13"
 for col in "BD":
     cmp_[f"{col}{r}"].number_format = PCT
+r += 1
+cmp_.cell(row=r, column=1, value="% automatizado de equilibrio (ahorro = 0)").font = BOLD
+for col, (s_, c_, u_) in COLS.items():
+    cmp_[f"{col}{r}"] = f"={equilibrio(s_, u_, c_)}"
+    cmp_[f"{col}{r}"].number_format = PCT
+    cmp_[f"{col}{r}"].font = BOLD
 r += 2
 for n in [
     "Lectura rápida:",
@@ -681,48 +709,52 @@ sen = wb.create_sheet("Sensibilidad")
 title(sen, "Sensibilidad", "Celdas azules de la primera columna son editables. Todo lo demás se recalcula desde Supuestos y las "
       "hojas de nube (Azure; Colombia con precios EE. UU., España con precios UE).", 7)
 
-sen["A4"] = "1) % automatizado (estaciones de Supuestos) — Azure. El almacenamiento de imágenes también escala con el %."
+sen["A4"] = ("1) % automatizado (estaciones de Supuestos) — Azure. 92,2% = medido (protocolo A); 77,0% = medido con objetos "
+             "desconocidos mezclados (variante D). El almacenamiento de imágenes también escala con el %.")
 sen["A4"].font = BOLD
 header(sen, 5, ["% automatizado", "Residual cola CO", "Ahorro CO", "Payback CO (meses)", "Residual cola ES", "Ahorro ES", "Payback ES (meses)"])
-MANT = "estaciones*plantas*(capex_pc+capex_camara)*pct_mant_hw/12"
-CAPEX = "(estaciones*plantas*(capex_pc+capex_camara+capex_integracion)+capex_planta*plantas)"
-for i, p in enumerate([0.80, 0.90, 0.95, 0.99], start=6):
+PCTS = [0.77, 0.80, 0.90, 0.922, 0.95, 0.99]
+for i, p in enumerate(PCTS, start=6):
     c = sen.cell(row=i, column=1, value=p)
     c.number_format = PCT
     c.font = BLUE
     c.fill = FILL_IN
-    for base, s, u in ((2, "co", ""), (5, "es", "_ue")):
+    for base, s_, u in ((2, "co", ""), (5, "es", "_ue")):
         Lr = get_column_letter(base)
         A = get_column_letter(base + 1)
-        nube = (f"(azure_total_mes{u}-azure_img_mes{u}+azure_img_mes{u}*((1-$A{i})+$A{i}*muestreo_act)/pct_subidas)*plantas")
-        supv = f"estaciones*plantas*fraccion_atencion*horas_mes*factor_cobertura*costo_hora_{s}"
-        sen.cell(row=i, column=base, value=f"=estaciones*plantas*throughput_obj_h*horas_mes*(1-$A{i})*min_caso_revision/60*costo_hora_{s}").number_format = USD0
-        sen.cell(row=i, column=base + 1, value=f"=actual_mes_{s}-({nube}+{MANT}+{Lr}{i}+{supv})").number_format = USD0
+        sen.cell(row=i, column=base, value=f"={cola(f'$A{i}', s_)}").number_format = USD0
+        sen.cell(row=i, column=base + 1, value=f"={ahorro(f'$A{i}', s_, u, 'azure')}").number_format = USD0
         sen.cell(row=i, column=base + 2, value=f'=IF({A}{i}>0,{CAPEX}/{A}{i},"No recupera")').number_format = NUM
+r0 = 6 + len(PCTS)
+sen.cell(row=r0, column=1, value="Equilibrio (ahorro = 0)").font = BOLD
+for base, s_, u in ((3, "co", ""), (6, "es", "_ue")):
+    c = sen.cell(row=r0, column=base, value=f"={equilibrio(s_, u, 'azure')}")
+    c.number_format = PCT
+    c.font = BOLD
 
-sen["A12"] = "2) Estaciones por planta (% automatizado de Supuestos) — Azure"
-sen["A12"].font = BOLD
-header(sen, 13, ["Estaciones", "Costo actual CO", "Costo nuevo CO", "Payback CO (meses)", "Costo actual ES", "Costo nuevo ES", "Payback ES (meses)"])
-for i, n in enumerate([1, 5, 20], start=14):
+T2 = r0 + 2
+sen.cell(row=T2, column=1, value="2) Estaciones por planta (% automatizado de Supuestos) — Azure").font = BOLD
+header(sen, T2 + 1, ["Estaciones", "Costo actual CO", "Costo nuevo CO", "Payback CO (meses)", "Costo actual ES", "Costo nuevo ES", "Payback ES (meses)"])
+for i, n in enumerate([1, 5, 20], start=T2 + 2):
     c = sen.cell(row=i, column=1, value=n)
     c.font = BLUE
     c.fill = FILL_IN
-    for base, s, u in ((2, "co", ""), (5, "es", "_ue")):
+    for base, s_, u in ((2, "co", ""), (5, "es", "_ue")):
         A = get_column_letter(base)
         N = get_column_letter(base + 1)
-        sen.cell(row=i, column=base, value=f"=actual_estacion_{s}*$A{i}*plantas").number_format = USD0
+        sen.cell(row=i, column=base, value=f"=actual_estacion_{s_}*$A{i}*plantas").number_format = USD0
         nube = (f"(azure_fijo_mes{u}+azure_por_estacion_mes{u}*$A{i}"
                 f"+azure_llm_por_conv{u}*(conv_dia_base+conv_dia_estacion*$A{i})*dias_mes)*plantas")
-        resid = (f"$A{i}*plantas*(throughput_obj_h*horas_mes*(1-pct_automatizado)*min_caso_revision/60*costo_hora_{s}"
-                 f"+fraccion_atencion*horas_mes*factor_cobertura*costo_hora_{s}+(capex_pc+capex_camara)*pct_mant_hw/12)")
+        resid = (f"$A{i}*plantas*(throughput_obj_h*horas_mes*(1-pct_automatizado)*min_caso_revision/60*costo_hora_{s_}"
+                 f"+fraccion_atencion*horas_mes*factor_cobertura*costo_hora_{s_}+(capex_pc+capex_camara)*pct_mant_hw/12)")
         sen.cell(row=i, column=base + 1, value=f"={nube}+{resid}").number_format = USD0
         capex = f"($A{i}*(capex_pc+capex_camara+capex_integracion)+capex_planta)*plantas"
         sen.cell(row=i, column=base + 2, value=f'=IF({A}{i}>{N}{i},{capex}/({A}{i}-{N}{i}),"No recupera")').number_format = NUM
 
-sen["A19"] = "3) Volumen del asistente: costo LLM mensual por planta (precios EE. UU.)"
-sen["A19"].font = BOLD
-header(sen, 20, ["Conversaciones/día", "Azure LLM (USD/mes)", "AWS LLM (USD/mes)", "Azure si todo va a gpt-4.1", "Peso LLM en nube Azure", "", ""])
-for i, n in enumerate([20, 60, 200, 1000], start=21):
+T3 = T2 + 7
+sen.cell(row=T3, column=1, value="3) Volumen del asistente: costo LLM mensual por planta (precios EE. UU.)").font = BOLD
+header(sen, T3 + 1, ["Conversaciones/día", "Azure LLM (USD/mes)", "AWS LLM (USD/mes)", "Azure si todo va a gpt-4.1", "Peso LLM en nube Azure", "", ""])
+for i, n in enumerate([20, 60, 200, 1000], start=T3 + 2):
     c = sen.cell(row=i, column=1, value=n)
     c.font = BLUE
     c.fill = FILL_IN
@@ -731,7 +763,7 @@ for i, n in enumerate([20, 60, 200, 1000], start=21):
     big = "(tok_in_conv*((1-pct_cache)*azure_big_in+pct_cache*azure_big_cache)+tok_out_conv*azure_big_out)/1000"
     sen.cell(row=i, column=4, value=f"={big}*$A{i}*dias_mes").number_format = USD0
     sen.cell(row=i, column=5, value=f"=B{i}/(azure_fijo_mes+azure_estacion_total_mes+B{i})").number_format = PCT
-sen["A26"] = "La columna 'todo a gpt-4.1' usa las celdas de precio gpt-4.1 de la hoja Azure (rangos azure_big_*)."
+sen.cell(row=T3 + 7, column=1, value="La columna 'todo a gpt-4.1' usa las celdas de precio gpt-4.1 de la hoja Azure (rangos azure_big_*).")
 widths(sen, [20, 22, 20, 24, 22, 20, 20])
 
 # ============================================================ FUENTES
