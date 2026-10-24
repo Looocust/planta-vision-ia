@@ -34,7 +34,11 @@ Defender for Storage y transacciones de almacenamiento. Para la UE, si no hay pr
 **El caso de negocio es un rango.** Escenario pesimista = **73,7%** (desconocidos mezclados, variante D, medido);
 escenario base/optimista = **90,3%** (referencias densas, protocolo A, medido); equilibrio = **80-86%**.
 
-'''+RANGE_TABLE+'''
+| Escenario | % automatizado | Colombia (Azure, 1 estación) | España (Azure, 1 estación) |
+|---|---|---|---|
+| Pesimista (desconocidos mezclados, medido) | 73,7% | −1.290 USD/mes: no se paga | −3.778 USD/mes: no se paga |
+| Equilibrio | 85,6% CO / 80,8% ES | 0 | 0 |
+| Base (referencias densas, medido) | 90,3% | +505 USD/mes (20%); payback ≈ 100 meses, ≈ 27 con 5 estaciones | +5.088 USD/mes (41%); payback ≈ 9,9 meses, ≈ 4,7 con 5 estaciones |
 
 En el escenario pesimista **el proyecto no se paga** con ningún proveedor ni en ningún país (Comparativo, filas
 "ESCENARIO PESIMISTA": Azure −1.290 / AWS −1.062 en Colombia; Azure −3.778 / AWS −3.502 en España). La palanca crítica es

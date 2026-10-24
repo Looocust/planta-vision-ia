@@ -9,7 +9,7 @@ Documento de estudio para exponer y defender el proyecto. Cada bloque responde t
 ## 1. El discurso de 60 segundos
 
 > "La tarea manual tiene dos partes: reconocer el producto y saber cómo está girado. Las separé de la conversación.
-> En la línea corre un **modelo clásico** (características de color, forma y textura + un clasificador) que responde en milisegundos, sin internet y sin LLM. Unas **reglas determinísticas** deciden si el robot actúa, si el caso va a revisión humana o si se rechaza. El robot **nunca recibe un ángulo dudoso**.
+> En la línea corre un **modelo clásico** (características de color, forma y textura + un clasificador) que responde en milisegundos, sin internet y sin LLM. Unas **reglas determinísticas** deciden si el robot actúa, si el caso va a revisión humana o si se rechaza. El robot solo recibe órdenes que pasan esas reglas, y el riesgo residual está medido: 0,09% de error entre los casos que actúa en el protocolo A.
 > Encima hay un **asistente agéntico** en LangGraph para supervisores, calidad, mantenimiento y ML: inspecciona imágenes, gestiona la cola de revisión, cruza métricas, diagnostica fallas con citas a los procedimientos y prepara operaciones de riesgo, que **solo se ejecutan con permiso y aprobación humana**, verificados en código.
 > Lo medí con los 4 protocolos que pide la prueba, con 30+ casos automáticos para el agente, y diseñé el despliegue en Azure (y AWS) con su modelo de costos."
 
@@ -57,7 +57,7 @@ Documento de estudio para exponer y defender el proyecto. Cada bloque responde t
    - En producción se usa **Regresión Logística (C=1)**: tuvo la mejor exactitud media en validación (95,5% frente a 92,6% del SVM).
    - Sobre todo, sus **probabilidades están calibradas**: cuando dice 99%, acierta ~99%.
    - Las "confianzas" del SVM y del Random Forest no servían para decidir (su error de calibración, ECE, era 0,35–0,74).
-3. **Ángulo**: dentro del objeto identificado, busca las vistas de entrenamiento más parecidas y promedia sus ángulos de forma circular. **La incertidumbre** es qué tan de acuerdo están esos vecinos: si apuntan a ángulos muy distintos, el sistema no está seguro.
+3. **Ángulo**: dentro del objeto identificado, busca las vistas de entrenamiento más parecidas y promedia sus ángulos de forma circular. **La incertidumbre** es un puntaje en grados: compara qué tan lejos está la imagen de la vista de referencia más cercana con cuánto cambia ese objeto al girar (su "perfil"). Es heurístico, no una cota garantizada; por eso el umbral se valida contra el error real ≤10°.
 4. **Bonus**: esas mismas vistas parecidas son el "top-k de imágenes similares" que se muestran como evidencia.
 
 ### ¿Cuándo dice "no sé"? (rechazo)
@@ -72,8 +72,9 @@ Documento de estudio para exponer y defender el proyecto. Cada bloque responde t
   - El umbral se elige **solo en validación**: la máxima cobertura con error ≤2% entre los casos automatizados, exigiendo al menos 50 casos ACT.
   - Si no se cumple, **la automatización se desactiva sola**. Eso pasa en los protocolos B y C.
 - **Objetos desconocidos:** como regla explícita, como máximo el 5% de los pseudo-desconocidos de validación puede llegar a ACT.
-  - En validación de producción fue el 4,1%.
+  - En validación de producción (vision-1.0.2) fue el 2,9% (42 de 1.440).
   - En el test D estricto, con la versión 1.0.1 llegaba a ACT el **6,4%** de los desconocidos, todos fotos del obj61 (el gemelo del obj92).
+  - ⚠️ **Honestidad metodológica:** esta compuerta se diseñó *después* de ver el fallo del obj61 en el test D estricto. Por eso el 0,97% es optimista y **no es una estimación independiente**; la estimación independiente es la de la 1.0.1 (6,4% desplegada / 12,6% anidada). Medirla limpia requiere objetos nuevos (en planta: el piloto en sombra).
   - La versión **1.0.2** agrega una **segunda compuerta de novedad**: compara la distancia a la clase predicha con el espaciado típico de esa clase. Así baja a **0,97%** (IC95 0,47–1,99%) sin empeorar el protocolo A.
 - **Ojo con la palabra "independiente":** las cifras independientes salen de **selección anidada** (cada protocolo elige modelo, parámetros y umbrales solo con su propio entrenamiento). La configuración desplegada se reporta aparte, con esa salvedad.
 
@@ -159,7 +160,7 @@ Máximo de pasos por turno, máximo de llamadas a tools, detección de la misma 
 | Set | Éxito | Herramienta correcta | Argumentos correctos | Costo total |
 |---|---|---|---|---|
 | Principal (43 casos) | **88,4%** | 92,9% | 94,7% | USD 0,034 (~USD 0,0008 por caso) |
-| **Holdout** (11 casos nuevos, no usados para ajustar) | **11/11** | 100% | 10/11 | USD 0,0097 |
+| **Holdout** (11 casos nuevos, no usados para ajustar) | **11/11** | 100% | 10/10 aplicables (1 sin argumentos que verificar) | USD 0,0097 |
 
 - **Escenarios adversos: 12/12.** Desconocido, no confiable, tool o argumentos inválidos, visión con 500 o timeout, bucle, inyección de prompt, rol no autorizado, auto-aprobación, ticket duplicado, acceso a otra planta, umbral fuera de rango.
 - **Cero violaciones de seguridad:** 0 comandos al robot sin aprobar, 0 auto-aprobaciones y 0 escrituras al dataset sin confirmación.
@@ -218,7 +219,7 @@ Máximo de pasos por turno, máximo de llamadas a tools, detección de la misma 
 
 **Cómo leerlo:**
 0. **La cobertura cambia el signo del caso; el proveedor de nube no.** Por eso el plan de proyecto exige un piloto en sombra antes de retirar al operario.
-1. **La nube no es lo caro.** Lo caro es la **cola de revisión humana**, ~42% del costo actual. Cada punto de automatización vale más que elegir Azure o AWS.
+1. **La nube no es lo caro.** Lo caro es la **cola de revisión humana**, ~42% del costo actual. Cada punto de automatización vale ~USD 108/mes en Colombia; la diferencia Azure–AWS es ~USD 227/mes. Pero solo la automatización cambia el signo del caso (73,7% → pérdida; 90,3% → ahorro).
 2. **Con desconocidos mezclados** (73,7% de automatización), **el proyecto no se paga.** Por eso el alta controlada de SKU nuevos y el rechazo de desconocidos son críticos para el negocio.
 3. **España se paga en menos de un año.** En Colombia hay que escalar (5 o más estaciones) y arrancar con un piloto austero.
 4. **Recomendación: Azure**, por el ecosistema Microsoft (Entra ID, Teams), la gestión del edge con Arc y la residencia de datos del LLM. Se reconoce que AWS sale más barato y que en Colombia esa diferencia pesa.
@@ -231,7 +232,7 @@ Las cifras salen de [`docs/cloud/finops_model.xlsx`](cloud/finops_model.xlsx), q
 |---|---|
 | ¿Por qué ML clásico y no deep learning? | La prueba lo exige, y además lo medí con trato justo: ResNet18 clasifica un poco mejor, pero sus embeddings son invariantes a la rotación y **se equivoca más en el ángulo** (16,8% frente a 7,7% de errores >10°), así que no cumple la regla de riesgo. El clásico corre en CPU en ~14 ms y está calibrado. |
 | ¿Cómo validaste que no te estabas engañando? | Un segundo modelo de otro proveedor (Codex) auditó cada reto contra el texto de la prueba. Encontró un baseline mal contado, un bug con umbrales NaN y una suplantación de aprobador, y todo se corrigió. Los informes están en `docs/validacion/`. |
-| ¿Qué pasa con objetos casi idénticos (obj61 vs obj92)? | Era la debilidad principal (6,4% de desconocidos a ACT). Agregué una segunda compuerta de novedad y bajó a 0,97%, sin empeorar el resto. En planta, para SKU casi idénticos, sumaría un dato complementario (código de barras, peso). |
+| ¿Qué pasa con objetos casi idénticos (obj61 vs obj92)? | Era la debilidad principal (6,4% de desconocidos a ACT). Agregué una segunda compuerta de novedad y bajó a 0,97%, sin empeorar el resto. Ojo: la diseñé después de ver ese fallo en el test, así que el 0,97% es optimista; hay que confirmarlo con objetos nuevos en el piloto. En planta, para SKU casi idénticos, sumaría un dato complementario (código de barras, peso). |
 | ¿Funciona con ruido real de cámara? | La versión 1.0.0 no funcionaba; lo detecté en la prueba integral. La 1.0.1 agregó preprocesado y aumentación (la 1.0.2 la mantiene), y la robustez está medida: error de 1,1% con ruido σ=4. Con ruido extremo, la 1.0.2 es más conservadora: rechaza en vez de actuar. |
 | ¿Cómo evitaste usar el test para ajustar? | Validación solo con vistas de entrenamiento; los umbrales salen de validación; el test se evalúa una sola vez. |
 | ¿Qué pasa con una lata (objeto simétrico)? | El ángulo no es identificable; el sistema lo detecta y manda REVIEW. Para el robot, si es simétrico, el agarre no depende del ángulo → mejora futura: marcar el SKU como "agarre libre". |

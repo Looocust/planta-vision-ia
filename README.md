@@ -75,3 +75,21 @@ docs/                  reportes, arquitectura, cloud, seguridad, validación
 ## Guía de defensa
 
 [`docs/DEFENSA.md`](docs/DEFENSA.md) resume las decisiones, las cifras clave, las preguntas difíciles y el vocabulario. El guion de la demo en vivo está en [`docs/DEMO.md`](docs/DEMO.md).
+
+## Limitaciones conocidas
+
+Salen de la auditoría final independiente ([`docs/validacion/07_auditoria_final_codex.md`](docs/validacion/07_auditoria_final_codex.md)). Se declaran en vez de ocultarse.
+
+**Visión:**
+- La segunda compuerta de novedad de `vision-1.0.2` se diseñó después de observar el fallo del obj61 en el test D estricto. Su 0,97% de desconocidos a ACT es optimista; la estimación independiente es la de `vision-1.0.1` (6,4% en la configuración desplegada, 12,6% en la anidada). Confirmarla requiere objetos nuevos (piloto en sombra).
+- La configuración desplegada se eligió con validaciones agregadas que se solapan con los tests de otros protocolos. Las cifras independientes son las de la selección anidada por protocolo.
+- El alta de SKU en staging recalcula las clases simétricas solo por leave-one-out (puede perder marcas calibradas) y no mide regresión sobre clases existentes. La promoción vía API administrativa exige menos gates que vía agente.
+
+**Agente:**
+- Los SKU nuevos aún no se aceptan en la revisión humana ni en el ángulo manual (solo `obj1..obj100`).
+- El deadline del turno no cubre una llamada al LLM ya en curso ni sus reintentos.
+- Algunos verificadores de la evaluación comprueban herramientas y entidades, no la veracidad de las cifras de la respuesta.
+- Persisten 3 fallos funcionales de calidad, no de seguridad (UC1-02, UC3-02, UC4-03).
+- La identidad es de demo (HMAC + `DEMO_LOGIN`); en producción sería Entra ID.
+
+**Despliegue:** Docker no se probó en la máquina de desarrollo. La ruta probada es `make up`, ejecutado desde una terminal normal.

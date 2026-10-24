@@ -381,7 +381,11 @@ Los mayores costos son **PostgreSQL con HA (≈ 275)**, los **Private Endpoints*
 **AI Search (≈ 74)** y las **2 réplicas del agente (≈ 56)**, no el LLM. El costo de la nube es
 pequeño frente al costo laboral evitado; el número que más mueve el caso de negocio es el **% automatizado**, que se presenta como **rango**:
 
-'''+RANGE_TABLE+'''
+| Escenario | % automatizado | Colombia (Azure, 1 estación) | España (Azure, 1 estación) |
+|---|---|---|---|
+| Pesimista (desconocidos mezclados, medido) | 73,7% | −1.290 USD/mes: no se paga | −3.778 USD/mes: no se paga |
+| Equilibrio | 85,6% CO / 80,8% ES | 0 | 0 |
+| Base (referencias densas, medido) | 90,3% | +505 USD/mes (20%); payback ≈ 100 meses, ≈ 27 con 5 estaciones | +5.088 USD/mes (41%); payback ≈ 9,9 meses, ≈ 4,7 con 5 estaciones |
 
 Con objetos desconocidos mezclados **el proyecto no se paga**; la palanca crítica es el **alta de SKU + rechazo de
 desconocidos** y el número real debe medirse en un **piloto en modo sombra** antes de invertir.

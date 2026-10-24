@@ -320,7 +320,7 @@ def build_pdf(out: Path):
          f"{pct(A['error_among_act'], 2)} (IC95 {ci(A['error_among_act_wilson95'])}). En B (arco ciego) y C (12 vistas) la política "
          f"efectiva es 0 ACT: la validación no aporta evidencia suficiente. En D estricto se rechaza {pct(Ds.get('unknown_rejected'))} "
          f"de las vistas de objetos desconocidos y {pct(Ds.get('unknown_reaches_act'), 2)} llega a ACT (con el modelo elegido por la selección anidada; ver 6b): "
-         "el criterio medido con pseudo-desconocidos de validación no se traslada por completo al test. En la variante D el error entre ACT observado ({pct(Dv['error_among_act'], 2)}) supera el objetivo de 2 %. "
+         f"el criterio medido con pseudo-desconocidos de validación no se traslada por completo al test. En la variante D el error entre ACT observado ({pct(Dv['error_among_act'], 2)}) supera el objetivo de 2 %. "
          f"La configuración desplegada (logística C=1) obtiene en A {pct(Ad['coverage_act'])} ACT con error {pct(Ad['error_among_act'], 2)}, "
          "pero su familia/C se eligió con validaciones agregadas que se solapan con tests de otros protocolos (sección 5). El artefacto "
          "se entrena con las 7.200 vistas y no tiene test propio.")

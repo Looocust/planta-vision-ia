@@ -75,7 +75,11 @@ Detalle: [Azure](cloud/azure_architecture.md) · [AWS](cloud/aws_architecture.md
 El caso de negocio se presenta como **rango** entre dos coberturas **medidas** de `vision-1.0.1` (la `vision-1.0.2` desplegada da 90,3% y 73,6%, prácticamente iguales); ninguna de las dos es
 todavía el número real de planta.
 
-'''+RANGE_TABLE+'''
+| Escenario | % automatizado | Colombia (Azure, 1 estación) | España (Azure, 1 estación) |
+|---|---|---|---|
+| Pesimista (desconocidos mezclados, medido) | 73,7% | −1.290 USD/mes: no se paga | −3.778 USD/mes: no se paga |
+| Equilibrio | 85,6% CO / 80,8% ES | 0 | 0 |
+| Base (referencias densas, medido) | 90,3% | +505 USD/mes (20%); payback ≈ 100 meses, ≈ 27 con 5 estaciones | +5.088 USD/mes (41%); payback ≈ 9,9 meses, ≈ 4,7 con 5 estaciones |
 
 - **Con objetos desconocidos mezclados, el proyecto no se paga** en ningún país: la cola de revisión se come el ahorro.
   El equilibrio está en **≈ 80-86%** de automatización segura.

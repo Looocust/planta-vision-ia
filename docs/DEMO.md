@@ -4,6 +4,8 @@ Guion probado de punta a punta en la máquina de desarrollo. Cada paso dice qué
 
 ## Antes de empezar (5 minutos antes)
 
+Ejecútalo en la app **Terminal** de tu Mac, no desde Claude: el agente necesita salir a internet para hablar con Gemini. Cierra apps pesadas antes, porque el Mac estuvo con poca memoria libre.
+
 ```bash
 lsof -ti :8001 :8002 | xargs kill           # por si quedó algo corriendo
 uv run python -m services.agent.plant.db    # re-siembra la planta simulada (la línea vuelve a "running")
