@@ -162,6 +162,12 @@ step_services() {
   mkdir -p "$LOG_DIR" data/runtime/uploads
   [[ -f services/vision_api/app.py ]] || die "Falta services/vision_api/app.py"
   [[ -f services/agent/app.py ]] || die "Falta services/agent/app.py"
+  # Un proceso previo en el mismo puerto respondería a los health checks en lugar del nuevo.
+  for port in "$VISION_PORT" "$AGENT_PORT"; do
+    if curl -s -o /dev/null --max-time 2 "http://localhost:$port/health"; then
+      die "El puerto $port ya está en uso (¿una ejecución anterior sigue viva?). Deténla: lsof -ti :$port | xargs kill"
+    fi
+  done
   trap cleanup EXIT
   trap 'exit 130' INT TERM
 
