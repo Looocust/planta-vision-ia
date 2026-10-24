@@ -1,95 +1,146 @@
-# Visión + asistente agéntico para una línea de pick & pack
+# Visión + copiloto agéntico para una línea de pick & pack
 
-Prueba técnica AI Engineer (Indra / Minsait). Este sistema sustituye la tarea manual de **identificar un producto y estimar su ángulo** antes de que un brazo robótico lo empaque. Además ofrece un **copiloto agéntico** para supervisores, calidad, mantenimiento e ingeniería de ML.
+Una cámara mira cada producto que llega a la línea. El sistema dice **qué producto es** y **cuántos grados está girado**, y se lo pasa al brazo robótico para que lo agarre bien. Así se reemplaza la tarea manual de identificar y alinear cada objeto.
 
-**Principio de diseño:** el lazo imagen → robot es **determinístico**: ML clásico más reglas, en el edge, sin LLM. El asistente es **agéntico**: LLM con tools en la nube, y toda acción de riesgo pasa por política en código y aprobación humana. El LLM propone; el código decide; el humano aprueba.
+Encima hay un **copiloto conversacional** para supervisores, calidad, mantenimiento e ingeniería de ML. Inspecciona fotos, explica por qué subieron los rechazos, busca en los manuales, crea tickets y prepara operaciones de riesgo, que solo se ejecutan si **otra persona** las aprueba.
+
+**La idea central:** el lazo foto → robot no usa IA generativa. Es un modelo clásico más reglas, rápido (~14 ms), sin internet y auditable. El LLM solo conversa con humanos. El LLM propone; el código decide; el humano aprueba.
+
+---
+
+## Cómo correrlo (Windows y macOS)
+
+Necesitas unos 10 minutos la primera vez. Después arranca en segundos.
+
+> **Importante:** no pongas el proyecto en una carpeta sincronizada con **iCloud** (Documentos/Escritorio en Mac) ni con **OneDrive** (Documentos/Escritorio en Windows). La sincronización vuelve muy lento el arranque. Usa por ejemplo `C:\proyectos` o tu carpeta de usuario.
+
+### 1. Instala `uv` (gestor de Python)
+
+`uv` instala Python y todas las librerías por ti.
+
+**macOS** (Terminal):
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Windows** (PowerShell):
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Cierra y vuelve a abrir la terminal después de instalarlo.
+
+### 2. Descarga el proyecto
+
+```bash
+git clone https://github.com/Looocust/planta-vision-ia.git
+cd planta-vision-ia
+```
+
+Si no tienes `git`, en GitHub usa **Code → Download ZIP**, descomprímelo y entra a la carpeta.
+
+### 3. Pon tu clave de Gemini (gratis)
+
+1. Crea una clave en https://aistudio.google.com/apikey (solo pide tu cuenta de Google, sin tarjeta).
+2. Copia el archivo de ejemplo:
+   - **macOS:** `cp .env.example .env`
+   - **Windows:** `copy .env.example .env`
+3. Abre `.env` con cualquier editor y pega tu clave en la línea `GOOGLE_API_KEY=`.
+
+Sin clave, la parte de visión funciona igual; solo el chat del copiloto la necesita.
+
+### 4. Arranca todo
+
+Mismo comando en Windows y macOS:
+
+```bash
+uv run python scripts/start.py
+```
+
+La primera vez descarga el dataset (~125 MB) y verifica que no esté corrupto. Cuando veas **"Sistema arriba"**, abre:
+
+| Qué | Dónde |
+|---|---|
+| Copiloto (chat) | http://localhost:8002 |
+| API de visión, para probar fotos con clics | http://localhost:8001/docs |
+
+Para detener todo: **Ctrl+C** en la terminal.
+
+### 5. Pruébalo en 2 minutos
+
+1. En http://localhost:8001/docs abre `POST /v1/predict`, pulsa **Try it out** y sube fotos de la carpeta `demo/imagenes/`. Cada una muestra una decisión distinta: el robot actúa, va a revisión humana o se rechaza.
+2. En http://localhost:8002 el usuario ya entra solo. Pregunta: *"¿Por qué subieron los rechazos a las 3 a. m.?"*
+3. Escribe *"Pausa la línea P1-L1 para recalibrar la cámara"*. La operación queda **pendiente**. Cambia el usuario a `u_sup2_p1` y apruébala.
+
+El guion completo de la demo está en [`docs/DEMO.md`](docs/DEMO.md).
+
+### Otros comandos útiles
+
+| Para | Comando |
+|---|---|
+| Correr las pruebas automáticas | `uv run pytest -q` |
+| Re-ejecutar el notebook de experimentos | `uv run jupyter nbconvert --to notebook --execute --inplace notebooks/01_experimentacion.ipynb` |
+| Correr la evaluación del copiloto (usa la clave de Gemini) | `uv run python eval/agent/run_eval.py` |
+| Ver los experimentos registrados | `uv run mlflow ui --backend-store-uri sqlite:///mlflow.db` |
+| Con Docker (alternativa) | `docker compose up --build` |
+
+En macOS también funcionan los atajos `make up`, `make test` y `make eval`.
+
+---
 
 ## Dónde está cada entregable
 
-| # | Entregable | Reto | Ubicación |
-|---|---|---|---|
-| 2 | Notebook de experimentación reproducible | 2 | [`notebooks/01_experimentacion.ipynb`](notebooks/01_experimentacion.ipynb) (ejecutado, con salidas) |
-| 3 | Reporte de resultados por protocolo, análisis de errores y model card | 2 | [`docs/report/vision_report.pdf`](docs/report/vision_report.pdf) · [`docs/model_card.md`](docs/model_card.md) · métricas crudas en [`docs/report/results.json`](docs/report/results.json) |
-| 5 | Repositorio de código con historial de commits | 2, 3, 4 | Este repositorio (`git log`) |
-| 7 | Catálogo de tools y contratos | 3 | [`docs/tool_catalog.md`](docs/tool_catalog.md) · JSON Schema en [`docs/tool_schemas/`](docs/tool_schemas/) · API en [`docs/CONTRACTS.md`](docs/CONTRACTS.md) |
-| 8 | Threat model y controles | 3 | [`docs/threat_model.md`](docs/threat_model.md) |
-| 10 | Servicio desplegado (local, un comando) | 4 | `make up` (sección siguiente) · [`docker-compose.yml`](docker-compose.yml) |
-| 12 | Arquitecturas Azure (y AWS) + modelo de costos | 6 | [`docs/cloud/azure_architecture.md`](docs/cloud/azure_architecture.md) · [`docs/cloud/aws_architecture.md`](docs/cloud/aws_architecture.md) · [`docs/cloud/azure_vs_aws.md`](docs/cloud/azure_vs_aws.md) · [`docs/cloud/finops.md`](docs/cloud/finops.md) · hoja [`docs/cloud/finops_model.xlsx`](docs/cloud/finops_model.xlsx) |
-
-**Plan de proyecto y equipo:** [`docs/plan_proyecto.md`](docs/plan_proyecto.md) cubre las fases con criterios go/no-go (piloto en sombra → canario → producción), el equipo y los roles, los riesgos y los KPIs.
-
-**Documentos de soporte:**
-- **Arquitectura y diagramas:** [`docs/architecture.md`](docs/architecture.md) y los diagramas en [`docs/diagrams/`](docs/diagrams/): la arquitectura, la secuencia imagen → robot, el flujo agéntico con aprobación humana y el alta de SKU.
-- **Diseño del agente:** [`docs/agent_design.md`](docs/agent_design.md) explica el patrón, las alternativas descartadas, el estado, la memoria, el contexto y el aislamiento.
-- **Evaluación del agente:** [`docs/report/agent_eval.md`](docs/report/agent_eval.md), con 30 o más casos, tokens y costo, fallos y mejoras. El runner está en [`eval/agent/`](eval/agent/).
-- **Experimentos trazables:** MLflow en `mlflow.db`. Para verlos: `uv run mlflow ui --backend-store-uri sqlite:///mlflow.db`.
-- **Validación independiente:** [`docs/validacion/`](docs/validacion/) guarda auditorías de cada reto hechas por un segundo modelo (Codex, de otro proveedor) contra el texto de la prueba, y sus correcciones están en el historial de commits.
-
-## Ejecución local en un comando
-
-Requisitos: macOS o Linux, [uv](https://docs.astral.sh/uv/) y una API key de LLM (la demo usa la capa gratuita de Google AI Studio).
-
-```bash
-cp .env.example .env      # completa GOOGLE_API_KEY
-make up
-```
-
-`make up` hace todo esto:
-1. Instala las dependencias.
-2. Descarga COIL-100 y verifica su SHA-256.
-3. Entrena el modelo si falta el artefacto.
-4. Levanta el servicio de visión (http://localhost:8001/docs) y el agente con su UI de chat (http://localhost:8002/).
-5. Espera a que los dos respondan `/health` con estado `ok`.
-
-| Comando | Qué hace |
+| Entregable | Archivo |
 |---|---|
-| `make test` | Pruebas unitarias e integración (visión + agente, sin red) |
-| `make notebook` | Re-ejecuta el notebook de punta a punta |
-| `make train` | Re-entrena y exporta `models/vision-1.0.2/` |
-| `make eval` | Evaluación reproducible del agente con el LLM real |
-| `make report` | Regenera el reporte PDF de visión |
-| `make finops` | Regenera la hoja de costos |
-| `make up-docker` | Alternativa con Docker Compose |
+| Notebook de experimentación (de punta a punta, ya ejecutado) | [`notebooks/01_experimentacion.ipynb`](notebooks/01_experimentacion.ipynb) |
+| Reporte de resultados por protocolo, errores y model card (PDF) | [`docs/report/vision_report.pdf`](docs/report/vision_report.pdf) · [`docs/model_card.md`](docs/model_card.md) |
+| Código con historial de commits | Este repositorio |
+| Catálogo de herramientas del copiloto y sus contratos | [`docs/tool_catalog.md`](docs/tool_catalog.md) · esquemas en [`docs/tool_schemas/`](docs/tool_schemas/) · APIs en [`docs/CONTRACTS.md`](docs/CONTRACTS.md) |
+| Threat model y controles de seguridad | [`docs/threat_model.md`](docs/threat_model.md) |
+| Servicio desplegado (local, un comando) | Sección "Cómo correrlo" |
+| Arquitectura en Azure (y AWS) + modelo de costos | [`docs/cloud/azure_architecture.md`](docs/cloud/azure_architecture.md) · [`docs/cloud/aws_architecture.md`](docs/cloud/aws_architecture.md) · [`docs/cloud/finops_model.xlsx`](docs/cloud/finops_model.xlsx) |
+| Plan de proyecto y equipo | [`docs/plan_proyecto.md`](docs/plan_proyecto.md) |
 
-> **Docker:** el `Dockerfile` y el `docker-compose.yml` están incluidos, pero no se pudieron probar en la máquina de desarrollo porque no tenía Docker. La ruta probada es `make up`.
+**Para entender el diseño:**
+- [`docs/architecture.md`](docs/architecture.md): arquitectura y diagramas (foto → robot, flujo con aprobación humana).
+- [`docs/agent_design.md`](docs/agent_design.md): cómo funciona el copiloto y por qué así.
+- [`docs/report/agent_eval.md`](docs/report/agent_eval.md): evaluación del copiloto (43 casos + 11 de control, costo y fallos).
+- [`docs/validacion/`](docs/validacion/): auditorías independientes de cada parte y cómo se corrigió lo que encontraron.
 
-## Componentes
+## Resultados principales
+
+| | Resultado |
+|---|---|
+| Objetos que el robot maneja solo (sin humano) | 90,3% |
+| Error cuando el robot actúa | 0,09% |
+| Tiempo por foto | ~14 ms en CPU |
+| Copiloto: éxito en casos de prueba | 88,4% (43 casos) · 11/11 en casos nuevos |
+| Copiloto: escenarios de ataque y falla superados | 12/12 |
+| Costo de nube por estación (Azure) | ~USD 640/mes |
+
+Cuando el sistema no está seguro (objeto desconocido, foto mala, objeto simétrico), **no le da una orden al robot**: manda el caso a revisión humana.
+
+## Cómo está organizado el código
 
 ```
-src/vision/            librería de visión (datos, protocolos, características, modelos, ángulo, rechazo, calidad, inferencia)
-services/vision_api/   API de inferencia FastAPI, independiente del agente (:8001)
-services/agent/        agente LangGraph + API + UI (:8002); plant/ = backends de planta simulados (SQLite)
-configs/               umbrales, roles, políticas, precios de LLM (sin secretos)
-models/vision-1.0.2/   artefacto versionado del modelo + metadata (hash de datos y de artefacto)
-eval/agent/            casos de evaluación y runner
-docs/                  reportes, arquitectura, cloud, seguridad, validación
+src/vision/            modelo de visión (características, clasificador, ángulo, rechazo)
+services/vision_api/   API de visión, independiente del copiloto (puerto 8001)
+services/agent/        copiloto con LangGraph + API + página de chat (puerto 8002)
+configs/               umbrales, roles y permisos (sin secretos)
+models/vision-1.0.2/   modelo entrenado y versionado
+eval/agent/            casos de prueba del copiloto
+scripts/start.py       arranque en un comando
+docs/                  reportes, arquitectura, nube, seguridad, auditorías
 ```
 
-## Qué es simulado
-
-- **Las imágenes de planta:** se usa COIL-100, como indica la prueba.
-- **Robot, PLC, cámara, métricas de turno, tickets y cola de revisión:** son backends en SQLite con datos sembrados de forma determinística. Las tools del agente los usan como si fueran sistemas reales.
-- **Identidad de usuarios:** roles en `configs/roles.yaml`; en producción vendrían de Entra ID.
-- **LLM:** se configura por entorno (`LLM_PROVIDER` y `LLM_MODEL`). La demo usa Gemini; el diseño cloud usa Azure OpenAI (o Bedrock en AWS), sin cambiar el código.
-
-## Guía de defensa
-
-[`docs/DEFENSA.md`](docs/DEFENSA.md) resume las decisiones, las cifras clave, las preguntas difíciles y el vocabulario. El guion de la demo en vivo está en [`docs/DEMO.md`](docs/DEMO.md).
+**Qué es simulado:** las fotos de planta (se usa el dataset COIL-100, como pide el enunciado), y el robot, la cámara, las métricas y los tickets, que viven en una base SQLite con datos de ejemplo. Los usuarios son de demo; en producción vendrían de Entra ID.
 
 ## Limitaciones conocidas
 
-Salen de la auditoría final independiente ([`docs/validacion/07_auditoria_final_codex.md`](docs/validacion/07_auditoria_final_codex.md)). Se declaran en vez de ocultarse.
+Las encontraron las auditorías independientes ([`docs/validacion/07_auditoria_final_codex.md`](docs/validacion/07_auditoria_final_codex.md)). Se declaran en vez de ocultarse:
 
-**Visión:**
-- La segunda compuerta de novedad de `vision-1.0.2` se diseñó después de observar el fallo del obj61 en el test D estricto. Su 0,97% de desconocidos a ACT es optimista; la estimación independiente es la de `vision-1.0.1` (6,4% en la configuración desplegada, 12,6% en la anidada). Confirmarla requiere objetos nuevos (piloto en sombra).
-- La configuración desplegada se eligió con validaciones agregadas que se solapan con los tests de otros protocolos. Las cifras independientes son las de la selección anidada por protocolo.
-- El alta de SKU en staging recalcula las clases simétricas solo por leave-one-out (puede perder marcas calibradas) y no mide regresión sobre clases existentes. La promoción vía API administrativa exige menos gates que vía agente.
-
-**Agente:**
-- Los SKU nuevos aún no se aceptan en la revisión humana ni en el ángulo manual (solo `obj1..obj100`).
-- El deadline del turno no cubre una llamada al LLM ya en curso ni sus reintentos.
-- Algunos verificadores de la evaluación comprueban herramientas y entidades, no la veracidad de las cifras de la respuesta.
-- Persisten 3 fallos funcionales de calidad, no de seguridad (UC1-02, UC3-02, UC4-03).
-- La identidad es de demo (HMAC + `DEMO_LOGIN`); en producción sería Entra ID.
-
-**Despliegue:** Docker no se probó en la máquina de desarrollo. La ruta probada es `make up`, ejecutado desde una terminal normal.
+- **Desconocidos casi idénticos:** la segunda compuerta de `vision-1.0.2` se diseñó después de ver un fallo en el test, así que su resultado (0,97% de desconocidos aceptados) es optimista. La estimación independiente es 6,4%. Se confirma en el piloto en planta.
+- **Configuración desplegada:** se eligió con validaciones que se cruzan con los tests de otros protocolos. Las cifras independientes son las de la selección anidada (ver el reporte PDF).
+- **Productos nuevos:** el alta de un SKU no mide si empeora el reconocimiento de los productos existentes, y los SKU nuevos aún no se aceptan en la revisión humana ni en el ángulo manual.
+- **Copiloto:** persisten 3 fallos de calidad de respuesta (ninguno de seguridad). El límite de tiempo por turno no corta una llamada al LLM ya en curso.
+- **Probado en:** macOS. Windows usa el mismo comando y solo librería estándar de Python, pero no se probó en un equipo Windows. Docker no se probó.

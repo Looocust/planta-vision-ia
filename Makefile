@@ -17,7 +17,7 @@ setup: ## Instala dependencias (uv sync) y crea .env desde .env.example si no ex
 	@test -f .env || (cp .env.example .env && echo "Creado .env: completa GOOGLE_API_KEY")
 
 data: ## Descarga COIL-100 y verifica su SHA-256 (idempotente)
-	scripts/run_local.sh --data-only
+	$(UV) run python scripts/start.py --data-only
 
 train: data ## Entrena y exporta el modelo de visión en models/
 	$(UV) run python scripts/train_vision.py
@@ -33,7 +33,7 @@ eval: ## Corre la evaluación reproducible del agente
 	$(UV) run python $(EVAL_RUNNER)
 
 up: ## Levanta todo en local sin Docker (datos + modelo + visión :8001 + agente :8002)
-	scripts/run_local.sh
+	$(UV) run python scripts/start.py
 
 up-docker: ## Levanta ambos servicios con docker compose (requiere modelo ya entrenado)
 	@test -f .env || cp .env.example .env

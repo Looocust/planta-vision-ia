@@ -12,7 +12,7 @@ Ejecútalo en la app **Terminal** de tu Mac, no desde Claude: el agente necesita
 lsof -ti :8001 :8002 | xargs kill           # por si quedó algo corriendo
 cd ~/planta-vision-ia
 uv run python -m services.agent.plant.db    # re-siembra la planta simulada (la línea vuelve a "running")
-make up                                     # deja esta terminal abierta
+uv run python scripts/start.py              # deja esta terminal abierta
 ```
 
 Abre en el navegador:
