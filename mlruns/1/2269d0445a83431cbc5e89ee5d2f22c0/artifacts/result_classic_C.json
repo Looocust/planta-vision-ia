@@ -1,0 +1,300 @@
+{
+ "protocol": "C",
+ "feature": "classic",
+ "n_train": 1200,
+ "n_test": 6000,
+ "n_fit": 600,
+ "n_val": 600,
+ "validation": {
+  "knn:{\"n_neighbors\": 1}": {
+   "class_accuracy": 0.7533333333333333,
+   "angle_mae_deg": 50.97345132743363,
+   "angle_median_deg": 30.0,
+   "angle_within_10": 0.0,
+   "end_to_end_success": 0.0,
+   "n": 600,
+   "fit_s": 0.10658884048461914
+  },
+  "knn:{\"n_neighbors\": 5}": {
+   "class_accuracy": 0.735,
+   "angle_mae_deg": 52.585034013605444,
+   "angle_median_deg": 30.0,
+   "angle_within_10": 0.0,
+   "end_to_end_success": 0.0,
+   "n": 600,
+   "fit_s": 0.12818193435668945
+  },
+  "logreg:{\"C\": 0.1}": {
+   "class_accuracy": 0.8766666666666667,
+   "angle_mae_deg": 52.3574144486692,
+   "angle_median_deg": 30.0,
+   "angle_within_10": 0.0,
+   "end_to_end_success": 0.0,
+   "n": 600,
+   "fit_s": 0.4289970397949219
+  },
+  "logreg:{\"C\": 1.0}": {
+   "class_accuracy": 0.8733333333333333,
+   "angle_mae_deg": 52.67175572519084,
+   "angle_median_deg": 30.0,
+   "angle_within_10": 0.0,
+   "end_to_end_success": 0.0,
+   "n": 600,
+   "fit_s": 0.27547788619995117
+  },
+  "logreg:{\"C\": 10.0}": {
+   "class_accuracy": 0.8733333333333333,
+   "angle_mae_deg": 52.55725190839695,
+   "angle_median_deg": 30.0,
+   "angle_within_10": 0.0,
+   "end_to_end_success": 0.0,
+   "n": 600,
+   "fit_s": 0.23728609085083008
+  },
+  "svm_rbf:{\"C\": 1.0}": {
+   "class_accuracy": 0.7633333333333333,
+   "angle_mae_deg": 51.61572052401747,
+   "angle_median_deg": 30.0,
+   "angle_within_10": 0.0,
+   "end_to_end_success": 0.0,
+   "n": 600,
+   "fit_s": 1.30318021774292
+  },
+  "svm_rbf:{\"C\": 10.0}": {
+   "class_accuracy": 0.795,
+   "angle_mae_deg": 52.0125786163522,
+   "angle_median_deg": 30.0,
+   "angle_within_10": 0.0,
+   "end_to_end_success": 0.0,
+   "n": 600,
+   "fit_s": 1.7280521392822266
+  },
+  "random_forest:{\"n_estimators\": 300}": {
+   "class_accuracy": 0.805,
+   "angle_mae_deg": 52.484472049689444,
+   "angle_median_deg": 30.0,
+   "angle_within_10": 0.0,
+   "end_to_end_success": 0.0,
+   "n": 600,
+   "fit_s": 2.7105600833892822
+  }
+ },
+ "test": {
+  "knn": {
+   "class_accuracy": 0.9765,
+   "angle_mae_deg": 9.038616159508974,
+   "angle_median_deg": 4.730661729076765,
+   "angle_within_10": 0.8994708994708994,
+   "end_to_end_success": 0.8783333333333333,
+   "n": 6000,
+   "coverage_act": 0.0021666666666666666,
+   "review_rate": 0.9933333333333333,
+   "reject_rate": 0.0045,
+   "error_among_act": 0.0,
+   "wrong_class_among_act": 0.0,
+   "n_act": 13,
+   "automated_success_rate": 0.0021666666666666666,
+   "known_coverage_act": 0.0021666666666666666,
+   "known_false_reject": 0.0045,
+   "ece": 0.023499999999999965,
+   "aurc_confidence": 0.10662468523414217,
+   "fit_s": 0.20987200736999512,
+   "predict_ms_per_image_batch": 0.14568551381429037
+  },
+  "logreg": {
+   "class_accuracy": 0.9896666666666667,
+   "angle_mae_deg": 9.452495522442366,
+   "angle_median_deg": 4.727573821405798,
+   "angle_within_10": 0.8969349949477938,
+   "end_to_end_success": 0.8876666666666667,
+   "n": 6000,
+   "coverage_act": 0.0021666666666666666,
+   "review_rate": 0.9933333333333333,
+   "reject_rate": 0.0045,
+   "error_among_act": 0.0,
+   "wrong_class_among_act": 0.0,
+   "n_act": 13,
+   "automated_success_rate": 0.0021666666666666666,
+   "known_coverage_act": 0.0021666666666666666,
+   "known_false_reject": 0.0045,
+   "ece": 0.05772644216691451,
+   "aurc_confidence": 0.10657681945282552,
+   "fit_s": 0.48573899269104004,
+   "predict_ms_per_image_batch": 0.11150821050008139
+  },
+  "svm_rbf": {
+   "class_accuracy": 0.9663333333333334,
+   "angle_mae_deg": 9.139984846538402,
+   "angle_median_deg": 4.717298085523666,
+   "angle_within_10": 0.9001379786133149,
+   "end_to_end_success": 0.8698333333333333,
+   "n": 6000,
+   "coverage_act": 0.0015,
+   "review_rate": 0.994,
+   "reject_rate": 0.0045,
+   "error_among_act": 0.0,
+   "wrong_class_among_act": 0.0,
+   "n_act": 9,
+   "automated_success_rate": 0.0015,
+   "known_coverage_act": 0.0015,
+   "known_false_reject": 0.0045,
+   "ece": 0.734428230348745,
+   "aurc_confidence": 0.1058972998026126,
+   "fit_s": 2.4955599308013916,
+   "predict_ms_per_image_batch": 0.7843340237935384
+  },
+  "random_forest": {
+   "class_accuracy": 0.9681666666666666,
+   "angle_mae_deg": 9.120869894524548,
+   "angle_median_deg": 4.720995054504357,
+   "angle_within_10": 0.899122051988294,
+   "end_to_end_success": 0.8705,
+   "n": 6000,
+   "coverage_act": 0.0021666666666666666,
+   "review_rate": 0.9933333333333333,
+   "reject_rate": 0.0045,
+   "error_among_act": 0.0,
+   "wrong_class_among_act": 0.0,
+   "n_act": 13,
+   "automated_success_rate": 0.0021666666666666666,
+   "known_coverage_act": 0.0021666666666666666,
+   "known_false_reject": 0.0045,
+   "ece": 0.5148972222222223,
+   "aurc_confidence": 0.1303220323882933,
+   "fit_s": 3.0560240745544434,
+   "predict_ms_per_image_batch": 0.1823132832845052
+  }
+ },
+ "selected": {
+  "clf": "logreg",
+  "params": {
+   "C": 0.1
+  }
+ },
+ "best_per_classifier": {
+  "knn": {
+   "clf": "knn",
+   "params": {
+    "n_neighbors": 1
+   }
+  },
+  "logreg": {
+   "clf": "logreg",
+   "params": {
+    "C": 0.1
+   }
+  },
+  "svm_rbf": {
+   "clf": "svm_rbf",
+   "params": {
+    "C": 10.0
+   }
+  },
+  "random_forest": {
+   "clf": "random_forest",
+   "params": {
+    "n_estimators": 300
+   }
+  }
+ },
+ "thresholds": {
+  "knn": {
+   "min_class_confidence": 0.0,
+   "max_angle_uncertainty_deg": 5.0,
+   "unknown_distance": 43.677893180847164,
+   "val_coverage": 0.0,
+   "val_error_among_act": 0.0,
+   "target_error": 0.02,
+   "angle_threshold_source": "prior_tolerance_half"
+  },
+  "logreg": {
+   "min_class_confidence": 0.6,
+   "max_angle_uncertainty_deg": 5.0,
+   "unknown_distance": 43.677893180847164,
+   "val_coverage": 0.0,
+   "val_error_among_act": 0.0,
+   "target_error": 0.02,
+   "angle_threshold_source": "prior_tolerance_half"
+  },
+  "svm_rbf": {
+   "min_class_confidence": 0.2,
+   "max_angle_uncertainty_deg": 5.0,
+   "unknown_distance": 43.677893180847164,
+   "val_coverage": 0.0,
+   "val_error_among_act": 0.0,
+   "target_error": 0.02,
+   "angle_threshold_source": "prior_tolerance_half"
+  },
+  "random_forest": {
+   "min_class_confidence": 0.2,
+   "max_angle_uncertainty_deg": 5.0,
+   "unknown_distance": 43.677893180847164,
+   "val_coverage": 0.0,
+   "val_error_among_act": 0.0,
+   "target_error": 0.02,
+   "angle_threshold_source": "prior_tolerance_half"
+  }
+ },
+ "baseline_raw_1nn": {
+  "class_accuracy": 0.9738333333333333,
+  "angle_mae_deg": 14.024473729248674,
+  "angle_median_deg": 10.0,
+  "angle_within_10": 0.7627930857436248,
+  "end_to_end_success": 0.7428333333333333,
+  "n": 6000,
+  "predict_ms_per_image_batch": 0.0894398291905721,
+  "coverage_act": 1.0,
+  "error_among_act": 0.25716666666666665
+ },
+ "elapsed_s": 23.721636056900024,
+ "selected_reliability": {
+  "bin_conf": [
+   0.07885072007775307,
+   0.16874911170452833,
+   0.23034288133344344,
+   0.2981974709601629,
+   0.366879607240359,
+   0.43553597033023833,
+   0.50132585052521,
+   0.5691712540249492,
+   0.6344713837492699,
+   0.6998259197263157,
+   0.7754218927745161,
+   0.837596197648032,
+   0.9084169883205377,
+   0.9761024528097072
+  ],
+  "bin_acc": [
+   0.0,
+   0.25,
+   0.3870967741935484,
+   0.5238095238095238,
+   0.6666666666666666,
+   0.9,
+   0.9354838709677419,
+   0.9534883720930233,
+   0.9607843137254902,
+   1.0,
+   0.9827586206896551,
+   1.0,
+   1.0,
+   1.0
+  ],
+  "bin_count": [
+   2,
+   16,
+   31,
+   21,
+   24,
+   30,
+   31,
+   43,
+   51,
+   68,
+   116,
+   289,
+   739,
+   4539
+  ]
+ }
+}

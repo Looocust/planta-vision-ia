@@ -1,0 +1,298 @@
+{
+ "protocol": "D",
+ "feature": "resnet18",
+ "n_train": 3240,
+ "n_test": 3960,
+ "n_fit": 1440,
+ "n_val": 1800,
+ "validation": {
+  "knn:{\"n_neighbors\": 1}": {
+   "class_accuracy": 0.9993055555555556,
+   "angle_mae_deg": 5.538987816956401,
+   "angle_median_deg": 3.024310819845198,
+   "angle_within_10": 0.936761640027797,
+   "end_to_end_success": 0.9361111111111111,
+   "n": 1440,
+   "fit_s": 0.111663818359375
+  },
+  "knn:{\"n_neighbors\": 5}": {
+   "class_accuracy": 0.9986111111111111,
+   "angle_mae_deg": 5.540069620157965,
+   "angle_median_deg": 3.022234431630409,
+   "angle_within_10": 0.9367176634214186,
+   "end_to_end_success": 0.9354166666666667,
+   "n": 1440,
+   "fit_s": 0.10104608535766602
+  },
+  "logreg:{\"C\": 0.1}": {
+   "class_accuracy": 0.9993055555555556,
+   "angle_mae_deg": 5.538987816956401,
+   "angle_median_deg": 3.024310819845198,
+   "angle_within_10": 0.936761640027797,
+   "end_to_end_success": 0.9361111111111111,
+   "n": 1440,
+   "fit_s": 0.2560842037200928
+  },
+  "logreg:{\"C\": 1.0}": {
+   "class_accuracy": 0.9993055555555556,
+   "angle_mae_deg": 5.538987816956401,
+   "angle_median_deg": 3.024310819845198,
+   "angle_within_10": 0.936761640027797,
+   "end_to_end_success": 0.9361111111111111,
+   "n": 1440,
+   "fit_s": 0.23638296127319336
+  },
+  "logreg:{\"C\": 10.0}": {
+   "class_accuracy": 0.9993055555555556,
+   "angle_mae_deg": 5.538987816956401,
+   "angle_median_deg": 3.024310819845198,
+   "angle_within_10": 0.936761640027797,
+   "end_to_end_success": 0.9361111111111111,
+   "n": 1440,
+   "fit_s": 0.22603487968444824
+  },
+  "svm_rbf:{\"C\": 1.0}": {
+   "class_accuracy": 0.9993055555555556,
+   "angle_mae_deg": 5.538987816956401,
+   "angle_median_deg": 3.024310819845198,
+   "angle_within_10": 0.936761640027797,
+   "end_to_end_success": 0.9361111111111111,
+   "n": 1440,
+   "fit_s": 2.4717609882354736
+  },
+  "svm_rbf:{\"C\": 10.0}": {
+   "class_accuracy": 0.9993055555555556,
+   "angle_mae_deg": 5.538987816956401,
+   "angle_median_deg": 3.024310819845198,
+   "angle_within_10": 0.936761640027797,
+   "end_to_end_success": 0.9361111111111111,
+   "n": 1440,
+   "fit_s": 3.178802013397217
+  },
+  "random_forest:{\"n_estimators\": 300}": {
+   "class_accuracy": 0.9979166666666667,
+   "angle_mae_deg": 5.538795983501779,
+   "angle_median_deg": 3.02015804341562,
+   "angle_within_10": 0.9366736256089074,
+   "end_to_end_success": 0.9347222222222222,
+   "n": 1440,
+   "fit_s": 3.4407989978790283
+  }
+ },
+ "test": {
+  "knn": {
+   "class_accuracy": 1.0,
+   "angle_mae_deg": 1.945202429033251,
+   "angle_median_deg": 1.3778362150951047,
+   "angle_within_10": 0.9901234567901235,
+   "end_to_end_success": 0.9901234567901235,
+   "n": 3240,
+   "coverage_act": 0.5957070707070707,
+   "review_rate": 0.25126262626262624,
+   "reject_rate": 0.15303030303030302,
+   "error_among_act": 0.003391267486222982,
+   "wrong_class_among_act": 0.0,
+   "n_act": 2359,
+   "automated_success_rate": 0.5936868686868687,
+   "known_coverage_act": 0.7280864197530864,
+   "known_false_reject": 0.0015432098765432098,
+   "unknown_rejected": 0.8347222222222223,
+   "unknown_false_accept_act": 0.0,
+   "unknown_not_act": 1.0,
+   "ece": 0.0,
+   "aurc_confidence": 0.009708713864128818,
+   "fit_s": 0.2096269130706787,
+   "predict_ms_per_image_batch": 0.26383490273446747,
+   "auroc_nn_distance": 0.9812945816186557,
+   "auroc_neg_confidence": 0.5,
+   "auroc_combined_rank": 0.9812945816186557
+  },
+  "logreg": {
+   "class_accuracy": 1.0,
+   "angle_mae_deg": 1.945202429033251,
+   "angle_median_deg": 1.3778362150951047,
+   "angle_within_10": 0.9901234567901235,
+   "end_to_end_success": 0.9901234567901235,
+   "n": 3240,
+   "coverage_act": 0.5957070707070707,
+   "review_rate": 0.25126262626262624,
+   "reject_rate": 0.15303030303030302,
+   "error_among_act": 0.003391267486222982,
+   "wrong_class_among_act": 0.0,
+   "n_act": 2359,
+   "automated_success_rate": 0.5936868686868687,
+   "known_coverage_act": 0.7280864197530864,
+   "known_false_reject": 0.0015432098765432098,
+   "unknown_rejected": 0.8347222222222223,
+   "unknown_false_accept_act": 0.0,
+   "unknown_not_act": 1.0,
+   "ece": 0.018676376269187486,
+   "aurc_confidence": 0.011076064317395069,
+   "fit_s": 0.4990410804748535,
+   "predict_ms_per_image_batch": 0.18015726648195826,
+   "auroc_nn_distance": 0.9812945816186557,
+   "auroc_neg_confidence": 0.955338434499314,
+   "auroc_combined_rank": 0.9741433041838135
+  },
+  "svm_rbf": {
+   "class_accuracy": 1.0,
+   "angle_mae_deg": 1.945202429033251,
+   "angle_median_deg": 1.3778362150951047,
+   "angle_within_10": 0.9901234567901235,
+   "end_to_end_success": 0.9901234567901235,
+   "n": 3240,
+   "coverage_act": 0.5957070707070707,
+   "review_rate": 0.25126262626262624,
+   "reject_rate": 0.15303030303030302,
+   "error_among_act": 0.003391267486222982,
+   "wrong_class_among_act": 0.0,
+   "n_act": 2359,
+   "automated_success_rate": 0.5936868686868687,
+   "known_coverage_act": 0.7280864197530864,
+   "known_false_reject": 0.0015432098765432098,
+   "unknown_rejected": 0.8347222222222223,
+   "unknown_false_accept_act": 0.0,
+   "unknown_not_act": 1.0,
+   "ece": 0.6299853852534227,
+   "aurc_confidence": 0.007833893612276743,
+   "fit_s": 7.242700815200806,
+   "predict_ms_per_image_batch": 0.9374548088420521,
+   "auroc_nn_distance": 0.9812945816186557,
+   "auroc_neg_confidence": 0.986383316186557,
+   "auroc_combined_rank": 0.9870968364197531
+  },
+  "random_forest": {
+   "class_accuracy": 1.0,
+   "angle_mae_deg": 1.945202429033251,
+   "angle_median_deg": 1.3778362150951047,
+   "angle_within_10": 0.9901234567901235,
+   "end_to_end_success": 0.9901234567901235,
+   "n": 3240,
+   "coverage_act": 0.5957070707070707,
+   "review_rate": 0.25126262626262624,
+   "reject_rate": 0.15303030303030302,
+   "error_among_act": 0.003391267486222982,
+   "wrong_class_among_act": 0.0,
+   "n_act": 2359,
+   "automated_success_rate": 0.5936868686868687,
+   "known_coverage_act": 0.7280864197530864,
+   "known_false_reject": 0.0015432098765432098,
+   "unknown_rejected": 0.8347222222222223,
+   "unknown_false_accept_act": 0.0,
+   "unknown_not_act": 1.0,
+   "ece": 0.18531172839506171,
+   "aurc_confidence": 0.020612154603709253,
+   "fit_s": 7.01822304725647,
+   "predict_ms_per_image_batch": 0.21713201445762556,
+   "auroc_nn_distance": 0.9812945816186557,
+   "auroc_neg_confidence": 0.9746386316872429,
+   "auroc_combined_rank": 0.9787808641975309
+  }
+ },
+ "unknown_objects": [
+  "obj9",
+  "obj10",
+  "obj20",
+  "obj42",
+  "obj61",
+  "obj69",
+  "obj72",
+  "obj83",
+  "obj95",
+  "obj97"
+ ],
+ "pseudo_unknown_val": [
+  "obj2",
+  "obj4",
+  "obj28",
+  "obj37",
+  "obj45",
+  "obj46",
+  "obj54",
+  "obj57",
+  "obj58",
+  "obj81"
+ ],
+ "selected": {
+  "clf": "knn",
+  "params": {
+   "n_neighbors": 1
+  }
+ },
+ "best_per_classifier": {
+  "knn": {
+   "clf": "knn",
+   "params": {
+    "n_neighbors": 1
+   }
+  },
+  "logreg": {
+   "clf": "logreg",
+   "params": {
+    "C": 0.1
+   }
+  },
+  "svm_rbf": {
+   "clf": "svm_rbf",
+   "params": {
+    "C": 1.0
+   }
+  },
+  "random_forest": {
+   "clf": "random_forest",
+   "params": {
+    "n_estimators": 300
+   }
+  }
+ },
+ "thresholds": {
+  "knn": {
+   "min_class_confidence": 0.0,
+   "max_angle_uncertainty_deg": 7.5,
+   "unknown_distance": 11.644436788558961,
+   "val_coverage": 0.0033333333333333335,
+   "val_error_among_act": 0.0,
+   "target_error": 0.02,
+   "angle_threshold_source": "validation"
+  },
+  "logreg": {
+   "min_class_confidence": 0.0,
+   "max_angle_uncertainty_deg": 7.5,
+   "unknown_distance": 11.644436788558961,
+   "val_coverage": 0.0033333333333333335,
+   "val_error_among_act": 0.0,
+   "target_error": 0.02,
+   "angle_threshold_source": "validation"
+  },
+  "svm_rbf": {
+   "min_class_confidence": 0.0,
+   "max_angle_uncertainty_deg": 7.5,
+   "unknown_distance": 11.644436788558961,
+   "val_coverage": 0.0033333333333333335,
+   "val_error_among_act": 0.0,
+   "target_error": 0.02,
+   "angle_threshold_source": "validation"
+  },
+  "random_forest": {
+   "min_class_confidence": 0.0,
+   "max_angle_uncertainty_deg": 7.5,
+   "unknown_distance": 11.644436788558961,
+   "val_coverage": 0.0033333333333333335,
+   "val_error_among_act": 0.0,
+   "target_error": 0.02,
+   "angle_threshold_source": "validation"
+  }
+ },
+ "elapsed_s": 37.90733313560486,
+ "selected_reliability": {
+  "bin_conf": [
+   1.0
+  ],
+  "bin_acc": [
+   1.0
+  ],
+  "bin_count": [
+   3240
+  ]
+ }
+}

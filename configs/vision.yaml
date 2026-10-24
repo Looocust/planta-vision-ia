@@ -1,0 +1,13 @@
+# Configuración del modelo productivo de visión (Reto 2). Sin secretos.
+# El clasificador y sus hiperparámetros se eligen en VALIDACIÓN (ver notebooks/01_experimentacion.ipynb);
+# scripts/train_vision.py lee docs/report/results.json si existe y, si no, usa estos valores por defecto.
+version: vision-1.0.0
+seed: 42
+classifier:
+  name: logreg
+  params: {C: 1.0}
+n_pca: 150
+k_angle_refine: 2
+target_error_among_act: 0.02   # error máximo tolerado entre decisiones ACT (en validación)
+angle_tolerance_deg: 10.0       # tolerancia de agarre del robot (±10°)
+feature_config: {}              # vacío → FeatureConfig() por defecto (ver src/vision/features.py)
