@@ -73,21 +73,22 @@ Documento de estudio para exponer y defender el proyecto. Cada bloque responde t
   - Si no se cumple, **la automatización se desactiva sola**. Eso pasa en los protocolos B y C.
 - **Objetos desconocidos:** como regla explícita, como máximo el 5% de los pseudo-desconocidos de validación puede llegar a ACT.
   - En validación de producción fue el 4,1%.
-  - En el test D estricto, el **6,4%** llega a ACT: todas son fotos del obj61, el gemelo del obj92.
+  - En el test D estricto, con la versión 1.0.1 llegaba a ACT el **6,4%** de los desconocidos, todos fotos del obj61 (el gemelo del obj92).
+  - La versión **1.0.2** agrega una **segunda compuerta de novedad**: compara la distancia a la clase predicha con el espaciado típico de esa clase. Así baja a **0,97%** (IC95 0,47–1,99%) sin empeorar el protocolo A.
 - **Ojo con la palabra "independiente":** las cifras independientes salen de **selección anidada** (cada protocolo elige modelo, parámetros y umbrales solo con su propio entrenamiento). La configuración desplegada se reporta aparte, con esa salvedad.
 
 ### Criterio de aceptación (±10°)
 - Éxito de punta a punta = **clase correcta Y error de ángulo ≤ 10°**.
 - La métrica de negocio no es la exactitud: es **cuántos casos automatiza el sistema** y **qué tan pocos errores comete en los que automatiza** (cada error = producto mal empacado o agarre fallido).
-**Resultados en test, configuración desplegada (vision-1.0.1):**
+**Resultados en test, configuración desplegada (vision-1.0.2):**
 
 | Protocolo | Acierta objeto | Error ángulo (MAE) | Automatiza (ACT) | Error cuando actúa (IC95) |
 |---|---|---|---|---|
 | A – intermedios | 100% | 2,9° | **90,3%** | **0,09%** (0,03–0,27%) |
 | B – sector ciego | 96,2% | 65,5° | 0% (se desactiva) | N/A: no arriesga |
 | C – escasez | 98,8% | 13,0° | 0% (se desactiva) | N/A: no arriesga |
-| D – variante mixta | — | — | 73,7% | 0,93% (0,64–1,34%) |
-| D – estricto | — | — | 6,4% de desconocidos llega a ACT | (todo obj61) |
+| D – variante mixta | — | — | 73,6% | 0,93% |
+| D – estricto | — | — | **0,97%** de desconocidos llega a ACT (antes 6,4%) | IC95 0,47–1,99% |
 
 **Robustez (protocolo A con perturbaciones):**
 
@@ -106,9 +107,9 @@ Las condiciones más fuertes que las del entrenamiento están reportadas tal cua
 |---|---|---|---|---|
 | Baseline | Comparar píxeles crudos (1-NN), siempre actúa | 2,4% / **25,7%** / **20,0%** | 0,3 ms (en lote) | — |
 | **Clásico (producción)** | HSV + HOG + LBP + Hu → PCA → Regresión Logística | **0,09%** / no actúa / 0,93% | p50 **18 ms** en CPU | 17,6 MB |
-| Referencia moderna | ResNet18 preentrenada (congelada) + misma receta | No automatiza nada: no cumple el riesgo en validación | ~27 ms en CPU, solo el embedding | 44,7 MB de pesos + PyTorch |
+| Referencia moderna | ResNet18 preentrenada (congelada) + misma receta, aumentación y regla de riesgo | No habilita ACT en A ni en D variante: su riesgo mínimo en validación es 3,3–3,6% (límite 2%) | ~27 ms en CPU, solo el embedding | 44,7 MB de pesos + PyTorch |
 
-**Conclusión:** la red moderna **clasifica** un poco mejor (por ejemplo, 99,7% en B), pero sus confianzas no permitieron cumplir la regla de riesgo y **no automatiza nada**. Además es más pesada y necesita PyTorch. La brecha **no justifica** su costo y complejidad para producción. Sí vale la pena explorarla en el futuro con calibración propia.
+**Conclusión:** la comparación es justa, porque ResNet usa la misma aumentación, validación y regla. Clasifica un poco mejor (99,8% frente a 99,0% en validación), pero **el problema es el ángulo**. Sus embeddings son más invariantes a la rotación: con la clase correcta, falla por más de 10° en el **16,8%** de las vistas, frente al **7,7%** del clásico. Para este problema, donde el ángulo importa tanto como la clase, el clásico es mejor; además pesa menos y no necesita PyTorch. La brecha **no justifica** su costo.
 
 ## 4. Reto 3 – Asistente agéntico
 
@@ -177,7 +178,7 @@ Máximo de pasos por turno, máximo de llamadas a tools, detección de la misma 
 ## 5. Reto 4 – Despliegue
 - Dos servicios separados: **API de visión** (puerto 8001) y **agente** (puerto 8002).
 - Un solo comando: `make up` (o `./scripts/run_local.sh`). También hay `docker-compose.yml`.
-- Configuración en `.env` (nunca en el código), modelo versionado en `models/vision-1.0.1/` (con hash del modelo, hash de datos, commit y snapshot de código).
+- Configuración en `.env` (nunca en el código), modelo versionado en `models/vision-1.0.2/` (con hash del modelo, hash de datos, commit y snapshot de código).
 
 ## 6. Reto 6 – Azure y AWS (explicado fácil)
 
@@ -228,10 +229,10 @@ Las cifras salen de [`docs/cloud/finops_model.xlsx`](cloud/finops_model.xlsx), q
 
 | Pregunta | Idea para responder |
 |---|---|
-| ¿Por qué ML clásico y no deep learning? | La prueba lo exige, y además lo medí: ResNet18 clasifica un poco mejor, pero con la misma regla de riesgo no automatiza nada, pesa más y necesita PyTorch. El clásico corre en CPU en ~18 ms y está calibrado. |
+| ¿Por qué ML clásico y no deep learning? | La prueba lo exige, y además lo medí con trato justo: ResNet18 clasifica un poco mejor, pero sus embeddings son invariantes a la rotación y **se equivoca más en el ángulo** (16,8% frente a 7,7% de errores >10°), así que no cumple la regla de riesgo. El clásico corre en CPU en ~18 ms y está calibrado. |
 | ¿Cómo validaste que no te estabas engañando? | Un segundo modelo de otro proveedor (Codex) auditó cada reto contra el texto de la prueba. Encontró un baseline mal contado, un bug con umbrales NaN y una suplantación de aprobador, y todo se corrigió. Los informes están en `docs/validacion/`. |
-| ¿Qué pasa con objetos casi idénticos (obj61 vs obj92)? | Es la debilidad principal: el 6,4% de desconocidos que llega a ACT es obj61. En planta se resuelve con un dato complementario (código de barras, peso) para esos SKU. |
-| ¿Funciona con ruido real de cámara? | La versión 1.0.0 no funcionaba; lo detecté en la prueba integral. La 1.0.1 tiene preprocesado y aumentación, y la robustez está medida: error de 1,1% con ruido σ=4. |
+| ¿Qué pasa con objetos casi idénticos (obj61 vs obj92)? | Era la debilidad principal (6,4% de desconocidos a ACT). Agregué una segunda compuerta de novedad y bajó a 0,97%, sin empeorar el resto. En planta, para SKU casi idénticos, sumaría un dato complementario (código de barras, peso). |
+| ¿Funciona con ruido real de cámara? | La versión 1.0.0 no funcionaba; lo detecté en la prueba integral. La 1.0.1 agregó preprocesado y aumentación (la 1.0.2 la mantiene), y la robustez está medida: error de 1,1% con ruido σ=4. Con ruido extremo, la 1.0.2 es más conservadora: rechaza en vez de actuar. |
 | ¿Cómo evitaste usar el test para ajustar? | Validación solo con vistas de entrenamiento; los umbrales salen de validación; el test se evalúa una sola vez. |
 | ¿Qué pasa con una lata (objeto simétrico)? | El ángulo no es identificable; el sistema lo detecta y manda REVIEW. Para el robot, si es simétrico, el agarre no depende del ángulo → mejora futura: marcar el SKU como "agarre libre". |
 | ¿Qué pasa si se cae internet? | La línea sigue: la visión corre en el edge. Solo el asistente queda sin servicio. |
