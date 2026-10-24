@@ -72,13 +72,15 @@ let pending = [];
 let TOKEN = null;  // identidad verificada: token firmado emitido por /v1/auth/demo-login (prod: Entra ID OIDC)
 const who = () => ({plant_id:$("plant").value, line_id:$("line").value});
 const auth = () => TOKEN ? {"Authorization": "Bearer " + TOKEN} : {};
-$("user").onchange = () => { TOKEN = null; $("who").textContent = "sin sesión (pulsa Entrar)"; };
+$("user").onchange = () => { TOKEN = null; $("who").textContent = "entrando…"; $("login").click(); };
 $("login").onclick = async () => {
   const r = await fetch("/v1/auth/demo-login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user_id:$("user").value})});
   const j = await r.json();
   if (!r.ok) { add("Login: "+JSON.stringify(j.detail), "meta"); return; }
   TOKEN = j.token; $("who").textContent = `${j.user_id} (${j.role}) · plantas ${j.plants.join(",")}`; loadAps();
 };
+// Demo: entra automáticamente con el usuario seleccionado al abrir la página.
+window.addEventListener("load", () => $("login").click());
 function add(text, cls, meta) {  // textContent: la salida del LLM nunca se interpreta como HTML
   const d=document.createElement("div"); d.className="msg "+(cls||""); d.textContent=text; $("log").appendChild(d);
   // evidencia: vistas similares del servicio de visión (solo URLs /v1/images/objN__A)
