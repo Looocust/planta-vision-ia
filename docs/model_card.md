@@ -12,7 +12,7 @@ Identificar el objeto (SKU) de una imagen de estación, estimar su ángulo de ro
 - Score de incertidumbre angular: separación angular equivalente a la distancia al vecino más cercano según la curva distancia-vs-ángulo del objeto. Es un **score heurístico en grados, no una cota del error**; su umbral se elige para que el riesgo observado en validación P(clase incorrecta o |error| > 10° | ACT) sea ≤ 2 %.
 - Umbrales: confianza ≥ 0.99, score ≤ 30.0°, distancia de desconocido ≤ 19.84. Validación de producción (90 conocidos paso 10° + 10 pseudo-desconocidos, vistas limpias + perturbadas): 5693 ACT, error 1.81% (IC95 [1.49, 2.19]%); pseudo-desconocidos que llegan a ACT 4.10% (criterio ≤ 5 %). Esta validación comparte imágenes con tests de los protocolos, así que no es una estimación independiente.
 - Clases con ambigüedad rotacional (→ REVIEW): obj35, obj47, obj67, obj84, obj94, obj95, obj98.
-- Artefacto: 17.59 MB, SHA-256 `4fce6c32cb4abe36…`, snapshot de código `5877577c981c4e46…` (incluido como code_snapshot.tar.gz), commit `4d6b14902c` (árbol sucio: True); latencia p50 ≈ 18.0 ms/imagen en CPU.
+- Artefacto: 17.59 MB, SHA-256 `4fce6c32cb4abe36…`, snapshot de código `a9cd408b9d533e72…` (incluido como code_snapshot.tar.gz), commit `1ca174a636` (árbol sucio: True); latencia p50 ≈ 18.0 ms/imagen en CPU.
 
 ## Datos
 - COIL-100: 100 objetos × 72 vistas (paso 5°), 128×128 RGB, fondo oscuro y luz controlada. Hash de datos `e9e73124fbf0e964…`. Semilla 42.

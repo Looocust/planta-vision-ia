@@ -1,7 +1,7 @@
 {
   "version": "vision-1.0.1",
   "stage": "production",
-  "created_at": "2026-10-24T18:25:17.822388+00:00",
+  "created_at": "2026-10-24T18:28:33.959088+00:00",
   "data_version_hash": "e9e73124fbf0e964a5248ac55d915dfb58603be5534f82aeda1cababc126bbeb",
   "dataset": "COIL-100 (7.200 vistas, 100 objetos, paso 5°)",
   "seed": 42,
@@ -870,9 +870,21 @@
     }
   },
   "git": {
-    "commit": "4d6b14902cd2aef100b6778532385ef277e98ee8",
+    "commit": "1ca174a636ac26c2844c696152ae426f77344c04",
     "dirty": true,
-    "note": "dirty=True: el árbol tenía cambios sin commit al entrenar"
+    "dirty_scope": [
+      "src/vision",
+      "scripts/train_vision.py",
+      "scripts/build_vision_notebook.py",
+      "scripts/build_vision_report.py",
+      "configs/vision.yaml",
+      "services/vision_api"
+    ],
+    "dirty_vision_paths": [
+      "scripts/train_vision.py"
+    ],
+    "n_unrelated_dirty_paths": 33,
+    "note": "dirty se evalúa solo sobre el código de visión; los demás cambios sin commit (agente) no afectan al artefacto"
   },
   "library_versions": {
     "python": "3.12.0",
@@ -884,7 +896,7 @@
     "scipy": "1.18.1",
     "mlflow": "3.17.2"
   },
-  "code_snapshot_sha256": "5877577c981c4e468c3ec97d07277b72812fd65e5e19bc9fdad9d42474533b48",
+  "code_snapshot_sha256": "a9cd408b9d533e72ec363b650862cfa7ae921ae143df32ee063f62940a01e131",
   "model_sha256": "4fce6c32cb4abe36078e55a712ed8bd77d0628f0e50327b5ef2fd2786f685fb9",
   "artifact_size_mb": 17.59
 }

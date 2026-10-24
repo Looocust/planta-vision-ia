@@ -42,8 +42,16 @@ def _git_info() -> dict:
         except Exception:  # noqa: BLE001
             return ""
 
-    return {"commit": run("rev-parse", "HEAD") or "unknown", "dirty": bool(run("status", "--porcelain")),
-            "note": "dirty=True: el árbol tenía cambios sin commit al entrenar"}
+    scope = ["src/vision", "scripts/train_vision.py", "scripts/build_vision_notebook.py",
+             "scripts/build_vision_report.py", "configs/vision.yaml", "services/vision_api"]
+    def paths(out):
+        return [ln.split(maxsplit=1)[1] for ln in out.splitlines() if ln.strip()]
+
+    vision_dirty = paths(run("status", "--porcelain", "--", *scope))
+    other_dirty = [x for x in paths(run("status", "--porcelain")) if x not in vision_dirty]
+    return {"commit": run("rev-parse", "HEAD") or "unknown", "dirty": bool(vision_dirty),
+            "dirty_scope": scope, "dirty_vision_paths": vision_dirty, "n_unrelated_dirty_paths": len(other_dirty),
+            "note": "dirty se evalúa solo sobre el código de visión; los demás cambios sin commit (agente) no afectan al artefacto"}
 
 
 def _code_snapshot(path: Path) -> tuple[Path, str]:
