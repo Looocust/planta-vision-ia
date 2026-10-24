@@ -32,7 +32,14 @@ Documento de estudio para exponer y defender el proyecto. Cada bloque responde t
   - **El ángulo es circular**: 355° y 0° están a 5° de distancia. Por eso el error se mide como `min(|a−b|, 360−|a−b|)` y el promedio de ángulos se hace con senos y cosenos (media circular), no con un promedio normal.
   - **Objetos simétricos** (latas, frascos, tazas vistas de lado): se ven casi iguales en cualquier ángulo. Su orientación es **imposible** de saber por la imagen. El sistema lo detecta y lo manda a revisión en vez de inventar.
   - **Fondo negro y luz perfecta**: en planta habrá sombras, suciedad, movimiento y otros fondos. Por eso existe un **filtro de calidad de imagen** y un plan de piloto con datos reales.
-- ⟨Hallazgos del EDA: cuántos objetos simétricos, qué clases se confunden⟩
+- **Hallazgos del EDA:**
+  - **7 objetos** se tratan como rotacionalmente ambiguos (obj35, 47, 67, 84, 94, 95, 98) y siempre van a REVIEW.
+  - En **75 de 100** objetos, la vista girada 180° se parece más que la de 90°: la confusión "de espaldas" es un riesgo real.
+  - El par más confundible es **obj61 ↔ obj92**, casi gemelos.
+- **El hallazgo más importante (prueba integral):**
+  - Con ruido de cámara imperceptible (σ=1), la versión 1.0.0 rechazaba objetos conocidos como "desconocidos": el ruido sobre el fondo negro "inventaba" texturas.
+  - La versión **1.0.1** agrega preprocesado (filtro de mediana, máscara del objeto, fondo a cero) y entrenamiento con imágenes perturbadas (ruido, brillo, desenfoque).
+  - Esto responde directo a la pregunta de la prueba: *"en qué difiere de un entorno real de planta y cómo lo aborda"*.
 
 ### Los 4 protocolos (son 4 "exámenes" distintos)
 | Protocolo | Pregunta que responde |
@@ -46,7 +53,10 @@ Documento de estudio para exponer y defender el proyecto. Cada bloque responde t
 
 ### Cómo funciona el modelo
 1. **Características** (números que describen la imagen): histograma de color HSV (qué colores tiene), HOG (bordes y formas), LBP (texturas). Se reducen con PCA.
-2. **Clasificador**: se compararon ⟨kNN, SVM, Random Forest, Regresión Logística⟩. Ganó ⟨…⟩ porque ⟨…⟩.
+2. **Clasificador:** se compararon **kNN, SVM, Random Forest y Regresión Logística**.
+   - En producción se usa **Regresión Logística (C=1)**: tuvo la mejor exactitud media en validación (95,5% frente a 92,6% del SVM).
+   - Sobre todo, sus **probabilidades están calibradas**: cuando dice 99%, acierta ~99%.
+   - Las "confianzas" del SVM y del Random Forest no servían para decidir (su error de calibración, ECE, era 0,35–0,74).
 3. **Ángulo**: dentro del objeto identificado, busca las vistas de entrenamiento más parecidas y promedia sus ángulos de forma circular. **La incertidumbre** es qué tan de acuerdo están esos vecinos: si apuntan a ángulos muy distintos, el sistema no está seguro.
 4. **Bonus**: esas mismas vistas parecidas son el "top-k de imágenes similares" que se muestran como evidencia.
 
@@ -57,23 +67,48 @@ Documento de estudio para exponer y defender el proyecto. Cada bloque responde t
 - En REVIEW o REJECT el robot recibe **HOLD** y el caso va a la cola humana.
 
 ### ¿Cómo sé que la confianza sirve para decidir?
-- **Diagrama de calibración**: si el modelo dice 90%, ¿acierta el 90% de las veces? ⟨ECE = …⟩
-- **Curva riesgo-cobertura**: cuanto más rechazo, menos errores. Elegimos el punto de operación ⟨cobertura …%, error entre los automatizados …%⟩.
-- **Protocolo D**: AUROC ⟨…⟩ para separar conocidos de desconocidos.
+- **Diagrama de calibración:** si el modelo dice 90%, ¿acierta el 90% de las veces? En el protocolo A el ECE es **0,001**, casi perfecto.
+- **Curva riesgo-cobertura:** cuanto más se rechaza, menos errores hay.
+  - El umbral se elige **solo en validación**: la máxima cobertura con error ≤2% entre los casos automatizados, exigiendo al menos 50 casos ACT.
+  - Si no se cumple, **la automatización se desactiva sola**. Eso pasa en los protocolos B y C.
+- **Objetos desconocidos:** como regla explícita, como máximo el 5% de los pseudo-desconocidos de validación puede llegar a ACT.
+  - En validación de producción fue el 4,1%.
+  - En el test D estricto, el **6,4%** llega a ACT: todas son fotos del obj61, el gemelo del obj92.
+- **Ojo con la palabra "independiente":** las cifras independientes salen de **selección anidada** (cada protocolo elige modelo, parámetros y umbrales solo con su propio entrenamiento). La configuración desplegada se reporta aparte, con esa salvedad.
 
 ### Criterio de aceptación (±10°)
 - Éxito de punta a punta = **clase correcta Y error de ángulo ≤ 10°**.
 - La métrica de negocio no es la exactitud: es **cuántos casos automatiza el sistema** y **qué tan pocos errores comete en los que automatiza** (cada error = producto mal empacado o agarre fallido).
-- ⟨Tabla de resultados por protocolo⟩
+**Resultados en test, configuración desplegada (vision-1.0.1):**
+
+| Protocolo | Acierta objeto | Error ángulo (MAE) | Automatiza (ACT) | Error cuando actúa (IC95) |
+|---|---|---|---|---|
+| A – intermedios | 100% | 2,9° | **90,3%** | **0,09%** (0,03–0,27%) |
+| B – sector ciego | 96,2% | 65,5° | 0% (se desactiva) | N/A: no arriesga |
+| C – escasez | 98,8% | 13,0° | 0% (se desactiva) | N/A: no arriesga |
+| D – variante mixta | — | — | 73,7% | 0,93% (0,64–1,34%) |
+| D – estricto | — | — | 6,4% de desconocidos llega a ACT | (todo obj61) |
+
+**Robustez (protocolo A con perturbaciones):**
+
+| Condición | Error cuando actúa |
+|---|---|
+| Ruido σ=2 | 0,15% |
+| Ruido σ=4 | 1,1% |
+| Desenfoque | 0,49% |
+| Brillo ±30% | 1,5–1,7% |
+| Ruido σ=8 | 2,4% |
+
+Las condiciones más fuertes que las del entrenamiento están reportadas tal cual.
 
 ### Comparación obligatoria
-| Modelo | Qué es | Resultado | Latencia | Tamaño |
+| Modelo | Qué es | Error cuando actúa (A / C / D mixto) | Latencia por imagen | Tamaño |
 |---|---|---|---|---|
-| Baseline | Comparar píxeles crudos (1-NN) | ⟨…⟩ | ⟨…⟩ | ⟨…⟩ |
-| **Clásico (producción)** | Características + ⟨…⟩ | ⟨…⟩ | ⟨…⟩ | ⟨…⟩ |
-| Referencia moderna | Red neuronal preentrenada + kNN | ⟨…⟩ | ⟨…⟩ | ⟨…⟩ |
+| Baseline | Comparar píxeles crudos (1-NN), siempre actúa | 2,4% / **25,7%** / **20,0%** | 0,3 ms (en lote) | — |
+| **Clásico (producción)** | HSV + HOG + LBP + Hu → PCA → Regresión Logística | **0,09%** / no actúa / 0,93% | p50 **18 ms** en CPU | 17,6 MB |
+| Referencia moderna | ResNet18 preentrenada (congelada) + misma receta | No automatiza nada: no cumple el riesgo en validación | ~27 ms en CPU, solo el embedding | 44,7 MB de pesos + PyTorch |
 
-**Conclusión:** ⟨¿la brecha justifica el costo/latencia/complejidad?⟩
+**Conclusión:** la red moderna **clasifica** un poco mejor (por ejemplo, 99,7% en B), pero sus confianzas no permitieron cumplir la regla de riesgo y **no automatiza nada**. Además es más pesada y necesita PyTorch. La brecha **no justifica** su costo y complejidad para producción. Sí vale la pena explorarla en el futuro con calibración propia.
 
 ## 4. Reto 3 – Asistente agéntico
 
@@ -123,13 +158,34 @@ Máximo de pasos por turno, máximo de llamadas a tools, detección de la misma 
 | Usuarios | Entra ID | IAM Identity Center | Permisos por rol |
 | Monitoreo | Azure Monitor | CloudWatch | Logs y alertas |
 
-⟨Costos: operación actual vs Azure vs AWS, payback⟩
+**Costos** (1 planta, 1 estación, 90,3% automatizado medido; USD/mes):
+
+| | Colombia · Azure | Colombia · AWS | España · Azure | España · AWS |
+|---|---|---|---|---|
+| Operación actual | 2.485 | 2.485 | 12.283 | 12.283 |
+| Nube | 638 | 410 | 741 | 464 |
+| Humano residual (cola + persona itinerante) | 1.297 | 1.297 | 6.409 | 6.409 |
+| **Ahorro** | 505 (20%) | 733 (29%) | 5.088 (41%) | 5.365 (44%) |
+| Recuperar la inversión, 1 estación | ~100 meses | ~69 meses | **~10 meses** | ~9 meses |
+| Recuperar la inversión, 5 estaciones | ~27 meses | ~25 meses | **~4,7 meses** | ~4,6 meses |
+| % de automatización mínimo para ahorrar | 85,6% | 83,5% | 80,8% | 80,3% |
+
+**Cómo leerlo:**
+1. **La nube no es lo caro.** Lo caro es la **cola de revisión humana**, ~42% del costo actual. Cada punto de automatización vale más que elegir Azure o AWS.
+2. **Con desconocidos mezclados** (73,7% de automatización), **el proyecto no se paga.** Por eso el alta controlada de SKU nuevos y el rechazo de desconocidos son críticos para el negocio.
+3. **España se paga en menos de un año.** En Colombia hay que escalar (5 o más estaciones) y arrancar con un piloto austero.
+4. **Recomendación: Azure**, por el ecosistema Microsoft (Entra ID, Teams), la gestión del edge con Arc y la residencia de datos del LLM. Se reconoce que AWS sale más barato y que en Colombia esa diferencia pesa.
+
+Las cifras salen de [`docs/cloud/finops_model.xlsx`](cloud/finops_model.xlsx), que tiene fórmulas vivas. Los supuestos (salarios, throughput, CAPEX) están marcados y son editables.
 
 ## 7. Preguntas difíciles que te pueden hacer
 
 | Pregunta | Idea para responder |
 |---|---|
-| ¿Por qué ML clásico y no deep learning? | La prueba lo exige, y además lo medí: ⟨brecha⟩. El clásico es más rápido, más pequeño y corre en CPU en la planta. |
+| ¿Por qué ML clásico y no deep learning? | La prueba lo exige, y además lo medí: ResNet18 clasifica un poco mejor, pero con la misma regla de riesgo no automatiza nada, pesa más y necesita PyTorch. El clásico corre en CPU en ~18 ms y está calibrado. |
+| ¿Cómo validaste que no te estabas engañando? | Un segundo modelo de otro proveedor (Codex) auditó cada reto contra el texto de la prueba. Encontró un baseline mal contado, un bug con umbrales NaN y una suplantación de aprobador, y todo se corrigió. Los informes están en `docs/validacion/`. |
+| ¿Qué pasa con objetos casi idénticos (obj61 vs obj92)? | Es la debilidad principal: el 6,4% de desconocidos que llega a ACT es obj61. En planta se resuelve con un dato complementario (código de barras, peso) para esos SKU. |
+| ¿Funciona con ruido real de cámara? | La versión 1.0.0 no funcionaba; lo detecté en la prueba integral. La 1.0.1 tiene preprocesado y aumentación, y la robustez está medida: error de 1,1% con ruido σ=4. |
 | ¿Cómo evitaste usar el test para ajustar? | Validación solo con vistas de entrenamiento; los umbrales salen de validación; el test se evalúa una sola vez. |
 | ¿Qué pasa con una lata (objeto simétrico)? | El ángulo no es identificable; el sistema lo detecta y manda REVIEW. Para el robot, si es simétrico, el agarre no depende del ángulo → mejora futura: marcar el SKU como "agarre libre". |
 | ¿Qué pasa si se cae internet? | La línea sigue: la visión corre en el edge. Solo el asistente queda sin servicio. |
@@ -137,7 +193,7 @@ Máximo de pasos por turno, máximo de llamadas a tools, detección de la misma 
 | ¿Y si alguien le pide al agente "mueve el robot a 90°"? | Verifica el rol, crea una solicitud de aprobación y queda pausado hasta que otra persona autorizada apruebe. |
 | ¿Cómo agregan un producto nuevo? | Se suben vistas, se valida que sean suficientes (cobertura del círculo), se crea un modelo candidato en staging, se mide y se pide aprobación para promoverlo. |
 | ¿Qué cambia en una fábrica real? | Datos reales, calibración cámara-robot, iluminación controlada, piloto en sombra (el sistema predice pero el operario sigue) antes de quitar al operario. |
-| ¿Cuánto cuesta? | ⟨Costo mensual y payback⟩ |
+| ¿Cuánto cuesta? | La nube cuesta ~USD 640/mes en Azure por estación (EE. UU.). Ahorra 20% en Colombia y 41% en España; en España se recupera la inversión en ~10 meses. El factor que más pesa es el % de automatización: por debajo de ~81–86% no hay ahorro. |
 
 ## 8. Vocabulario mínimo
 

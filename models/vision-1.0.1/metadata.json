@@ -1,7 +1,7 @@
 {
   "version": "vision-1.0.1",
   "stage": "production",
-  "created_at": "2026-10-24T18:28:33.959088+00:00",
+  "created_at": "2026-10-24T18:29:32.790784+00:00",
   "data_version_hash": "e9e73124fbf0e964a5248ac55d915dfb58603be5534f82aeda1cababc126bbeb",
   "dataset": "COIL-100 (7.200 vistas, 100 objetos, paso 5°)",
   "seed": 42,
@@ -870,8 +870,8 @@
     }
   },
   "git": {
-    "commit": "1ca174a636ac26c2844c696152ae426f77344c04",
-    "dirty": true,
+    "commit": "c4ef89c5a7d7369cb2cd9a6d1fc0662474ce4044",
+    "dirty": false,
     "dirty_scope": [
       "src/vision",
       "scripts/train_vision.py",
@@ -880,10 +880,8 @@
       "configs/vision.yaml",
       "services/vision_api"
     ],
-    "dirty_vision_paths": [
-      "scripts/train_vision.py"
-    ],
-    "n_unrelated_dirty_paths": 33,
+    "dirty_vision_paths": [],
+    "n_unrelated_dirty_paths": 27,
     "note": "dirty se evalúa solo sobre el código de visión; los demás cambios sin commit (agente) no afectan al artefacto"
   },
   "library_versions": {
