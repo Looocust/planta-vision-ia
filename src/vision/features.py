@@ -34,6 +34,8 @@ class FeatureConfig:
     w_lbp: float = 0.5
     w_hu: float = 0.25
     blocks: tuple[str, ...] = ("color", "hog", "lbp", "hu")
+    denoise_ksize: int = 3  # mediana k×k antes de todo (0 = sin filtro): robustez a ruido de sensor
+    suppress_background: bool = True  # pone a 0 el fondo (máscara sobre gris suavizado + apertura)
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -43,6 +45,9 @@ class FeatureConfig:
     @classmethod
     def from_dict(cls, d: dict) -> "FeatureConfig":
         d = dict(d)
+        # artefactos anteriores a 1.0.1 no tenían preprocesado: se reproducen tal cual se entrenaron
+        d.setdefault("denoise_ksize", 0)
+        d.setdefault("suppress_background", False)
         if "blocks" in d:
             d["blocks"] = tuple(d["blocks"])
         return cls(**d)
@@ -104,10 +109,31 @@ def _hu(mask: np.ndarray) -> np.ndarray:
     return (hu / 10.0).astype(np.float32)
 
 
-def extract_features(image_rgb: np.ndarray, cfg: FeatureConfig = FeatureConfig()) -> np.ndarray:
+def preprocess(image_rgb: np.ndarray, cfg: FeatureConfig = FeatureConfig()) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Normalización robusta a ruido de sensor, idéntica en entrenamiento e inferencia.
+
+    1) tamaño canónico; 2) mediana k×k (elimina ruido impulsivo/gaussiano leve sin borrar bordes);
+    3) máscara de objeto sobre el gris suavizado (Gauss 5×5) + apertura morfológica (quita motas);
+    4) supresión de fondo: los píxeles fuera de la máscara se ponen a 0, así el ruido del fondo no crea
+       textura para HOG/LBP ni masa para el histograma de color.
+    """
     img = to_canonical(image_rgb, cfg.size)
+    if cfg.denoise_ksize and cfg.denoise_ksize > 1:
+        img = cv2.medianBlur(img, cfg.denoise_ksize)
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    mask = gray > cfg.mask_threshold
+    if not cfg.suppress_background and not cfg.denoise_ksize:  # modo legado (≤ 1.0.0): máscara directa
+        return img, gray, gray > cfg.mask_threshold
+    smooth = cv2.GaussianBlur(gray, (5, 5), 0)
+    mask = (smooth > cfg.mask_threshold).astype(np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8)).astype(bool)
+    if cfg.suppress_background:
+        img = img * mask[..., None].astype(np.uint8)
+        gray = gray * mask.astype(np.uint8)
+    return img, gray, mask
+
+
+def extract_features(image_rgb: np.ndarray, cfg: FeatureConfig = FeatureConfig()) -> np.ndarray:
+    img, gray, mask = preprocess(image_rgb, cfg)
     parts = []
     if "color" in cfg.blocks:
         parts.append(cfg.w_color * _color_hist(img, mask, cfg))

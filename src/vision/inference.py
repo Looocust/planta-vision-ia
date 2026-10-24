@@ -65,6 +65,10 @@ class VisionPredictor:
         model_dir = Path(model_dir)
         model_dir.mkdir(parents=True, exist_ok=True)
         joblib.dump(self.model, model_dir / "model.joblib", compress=3)
+        from .data import sha256_file
+
+        # el hash SIEMPRE se recalcula sobre el archivo recién escrito (nunca se hereda del padre)
+        self.metadata["model_sha256"] = sha256_file(model_dir / "model.joblib")
         self.metadata["thresholds"] = self.thresholds.to_dict()
         self.metadata["artifact_size_mb"] = round(sum(f.stat().st_size for f in model_dir.rglob("*") if f.is_file()) / 1e6, 2)
         (model_dir / "metadata.json").write_text(json.dumps(self.metadata, indent=2, ensure_ascii=False))
@@ -101,7 +105,8 @@ class VisionPredictor:
                 decision=decision, reasons=reasons,
                 robot_command=({"action": "PICK", "object": label, "rotate_deg": _rotate_cmd(out["angle"][0])}
                                if decision == "ACT" else {"action": "HOLD", "reason": reasons[0]}),
-                similar=[{k: s[k] for k in ("label", "angle_deg", "similarity", "image_id")} for s in out["similar"][0]],
+                similar=([{k: s[k] for k in ("label", "angle_deg", "similarity", "image_id")} for s in out["similar"][0]]
+                         if out["similar"] else []),
             )
         resp["latency_ms"] = round((time.perf_counter() - t0) * 1000, 2)
         return resp
@@ -173,6 +178,7 @@ class VisionPredictor:
             ids = np.array([f"{sku}__{int(round(a)) % 360}" for a in angles])
             model.add_class(X, sku, np.asarray(angles), ids)
             meta = copy.deepcopy(self.metadata)
+            meta.pop("model_sha256", None)
             meta.update(version=candidate_version, parent_version=self.version, stage="staging",
                         created_at=datetime.now(timezone.utc).isoformat(), classes=[str(c) for c in model.classes_],
                         staged_sku=result)
@@ -198,9 +204,12 @@ def promote_candidate(candidate_version: str, models_root: str | Path) -> Path:
         raise FileNotFoundError(candidate_version)
     dst = models_root / candidate_version
     if dst.exists():
-        shutil.rmtree(dst)
+        raise FileExistsError(f"la versión {candidate_version} ya está publicada; no se sobrescribe")
     shutil.copytree(src, dst)
+    from .data import sha256_file
+
     meta = json.loads((dst / "metadata.json").read_text())
-    meta.update(stage="production", promoted_at=datetime.now(timezone.utc).isoformat())
+    meta.update(stage="production", promoted_at=datetime.now(timezone.utc).isoformat(),
+                model_sha256=sha256_file(dst / "model.joblib"))
     (dst / "metadata.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False))
     return dst

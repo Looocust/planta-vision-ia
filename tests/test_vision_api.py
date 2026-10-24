@@ -36,9 +36,19 @@ def _load(o, a):
 def client(tmp_path_factory):
     import tempfile
 
-    # todo lo temporal (modelos, staging y archivos multipart grandes) bajo el directorio de pytest
-    tempfile.tempdir = str(tmp_path_factory.mktemp("spool"))
-    root = tmp_path_factory.mktemp("models")
+    # todo lo temporal (modelos, staging y archivos multipart grandes) bajo el directorio de pytest; si el
+    # entorno no tiene temporales escribibles, se usa una carpeta dentro del repo (data/runtime/pytest_tmp)
+    try:
+        base = tmp_path_factory.mktemp("vision_api")
+    except Exception:  # noqa: BLE001
+        import uuid
+
+        base = Path(__file__).resolve().parents[1] / "data" / "runtime" / "pytest_tmp" / uuid.uuid4().hex
+        base.mkdir(parents=True)
+    (base / "spool").mkdir(exist_ok=True)
+    tempfile.tempdir = str(base / "spool")
+    root = base / "models"
+    root.mkdir(exist_ok=True)
     imgs, labels, angles, ids = [], [], [], []
     for o in OBJS:
         for a in range(0, 360, 10):
@@ -80,6 +90,25 @@ def test_predict_happy_path_contract(client):
         assert abs(((body["angle"]["degrees"] - 45 + 180) % 360) - 180) <= 10
     else:
         assert body["robot_command"]["action"] == "HOLD"
+
+
+@pytest.mark.parametrize("k", ["0", "21", "-1"])
+def test_predict_top_k_out_of_range_is_422(client, k):
+    r = client.post("/v1/predict", files={"file": ("x.png", _png(_load(3, 45)), "image/png")}, data={"top_k": k})
+    assert r.status_code == 422
+
+
+def test_staged_candidate_has_own_sha(client, tmp_path):
+    import hashlib
+    import services.vision_api.app as api
+
+    angs = list(range(0, 360, 20))
+    files = [("files", (f"{a}.png", _png(_load(9, a)), "image/png")) for a in angs]
+    body = client.post("/v1/skus/stage", data={"sku": "sku-sha", "angles": json.dumps(angs)}, files=files,
+                       headers={"X-Admin-Token": "test-token"}).json()
+    d = Path(api.settings.models_root) / "staging" / body["candidate_version"]
+    meta = json.loads((d / "metadata.json").read_text())
+    assert meta["model_sha256"] == hashlib.sha256((d / "model.joblib").read_bytes()).hexdigest()
 
 
 def test_predict_quality_reject(client):

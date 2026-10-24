@@ -46,6 +46,27 @@ def _git_info() -> dict:
             "note": "dirty=True: el árbol tenía cambios sin commit al entrenar"}
 
 
+def _code_snapshot(path: Path) -> tuple[Path, str]:
+    """Tarball determinista del código que produce el artefacto (src/vision, scripts de visión, configs)."""
+    import hashlib
+    import io
+    import tarfile
+
+    files = sorted(list((ROOT / "src" / "vision").glob("*.py")) + list((ROOT / "scripts").glob("*vision*.py")) +
+                   [ROOT / "configs" / "vision.yaml"])
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz", compresslevel=9) as tf:
+        for f in files:
+            data = f.read_bytes()
+            ti = tarfile.TarInfo(str(f.relative_to(ROOT)))
+            ti.size, ti.mtime, ti.mode = len(data), 0, 0o644
+            tf.addfile(ti, io.BytesIO(data))
+    path.write_bytes(buf.getvalue())
+    content_hash = hashlib.sha256(b"".join(hashlib.sha256(f.read_bytes()).digest() + str(f.relative_to(ROOT)).encode()
+                                           for f in files)).hexdigest()
+    return path, content_hash
+
+
 def _lib_versions() -> dict:
     import importlib.metadata as md
     import platform
@@ -64,6 +85,8 @@ def main(argv=None) -> Path:
     ap.add_argument("--config", default=str(ROOT / "configs" / "vision.yaml"))
     ap.add_argument("--version", default=None)
     ap.add_argument("--out", default=str(ROOT / "models"))
+    ap.add_argument("--force", action="store_true",
+                    help="permite sobrescribir una versión existente (solo para regenerar una versión NO publicada)")
     args = ap.parse_args(argv)
     cfg = yaml.safe_load(Path(args.config).read_text())
     version = args.version or cfg["version"]
@@ -84,7 +107,9 @@ def main(argv=None) -> Path:
 
     # pasos 2–4 de la receta con la validación de producción (90 conocidos paso 10° + 10 pseudo-desconocidos)
     vs = production_validation_split(ds.labels, ds.angles)
-    cal = calibrate_recipe(X, names, ds.angles, ds.image_ids, vs["fit"], vs["val"], vs["val_is_unknown"], recipe)
+    X_aug, X_pert = data["classic_aug"], data["classic_pert"]
+    cal = calibrate_recipe(X, names, ds.angles, ds.image_ids, vs["fit"], vs["val"], vs["val_is_unknown"], recipe,
+                           X_aug=X_aug, X_pert=X_pert)
     th, info = cal["thresholds"], {k: v for k, v in cal["threshold_info"].items() if k != "grid"}
     print("k (validación):", cal["k"], "| clases con ángulo poco fiable:", cal["flagged"])
     print("Umbrales (validación):", th.to_dict(), info)
@@ -92,7 +117,9 @@ def main(argv=None) -> Path:
     # paso 5: modelo final con todo
     t = time.time()
     final = VisionModel(recipe["clf"], recipe["params"], n_pca=recipe["n_pca"], k_angle_refine=cal["k"])
-    final.fit(X, names, ds.angles, ds.image_ids)
+    allix = np.arange(len(X))
+    final.fit(np.vstack([X, X_aug]), np.concatenate([names, names]), np.concatenate([ds.angles, ds.angles]),
+              np.concatenate([ds.image_ids, ds.image_ids]))
     loo_symmetric = list(final.symmetric_classes)
     final.symmetric_classes = sorted(set(final.symmetric_classes) | set(cal["flagged"]))
     print(f"Entrenamiento final: {time.time() - t:.1f}s; clases simétricas: {final.symmetric_classes}")
@@ -123,17 +150,28 @@ def main(argv=None) -> Path:
         "symmetric_classes_sources": {"loo_twin_view": loo_symmetric, "validation_angle_unreliable": cal["flagged"]},
         "symmetry_scores": {str(k): (None if not np.isfinite(v) else round(float(v), 4))
                             for k, v in final.symmetry_scores_.items()},
-        "metrics_note": ("Las métricas son las de la RECETA evaluada con test independiente en cada protocolo "
-                         "(docs/report/results.json → recipe); el artefacto usa las 7.200 vistas y no tiene test propio."),
+        "metrics_note": ("El artefacto usa las 7.200 vistas (+1 copia aumentada) y no tiene test propio. Las cifras "
+                         "independientes son las de la selección ANIDADA por protocolo (results.json → recipe.nested); "
+                         "las de esta configuración desplegada (results.json → recipe.results.classic) tienen familia/C "
+                         "elegidos con validación agregada que se solapa con tests de otros protocolos."),
+        "changelog": ["1.0.0: receta inicial", "1.0.1: preprocesado robusto a ruido (mediana 3×3 + supresión de fondo), "
+                      "aumentación en train, umbrales calibrados con validación perturbada, criterio de falsa "
+                      "aceptación de desconocidos ≤5 %"],
         "metrics_summary": recipe_metrics,
         "git": git,
         "library_versions": versions,
     }
+    target = Path(args.out) / version
+    if target.exists() and not args.force:
+        raise SystemExit(f"{target} ya existe: las versiones publicadas no se sobrescriben (use --force solo para "
+                         "regenerar una versión no publicada, o cambie --version)")
+    snap, snap_sha = _code_snapshot(target.parent / f".{version}.code.tar.gz")
+    meta["code_snapshot_sha256"] = snap_sha
     pred = VisionPredictor(final, meta)
-    out_dir = pred.save(Path(args.out) / version)
-    model_sha = sha256_file(out_dir / "model.joblib")
-    pred.metadata["model_sha256"] = model_sha
-    (out_dir / "metadata.json").write_text(json.dumps(pred.metadata, indent=2, ensure_ascii=False))
+    out_dir = pred.save(target)
+    final_snap = out_dir / "code_snapshot.tar.gz"
+    snap.replace(final_snap)
+    model_sha = pred.metadata["model_sha256"]
     print(f"Artefacto exportado en {out_dir} ({pred.metadata['artifact_size_mb']} MB, sha256 {model_sha[:16]}…)")
     try:  # trazabilidad en MLflow (mismo store que los experimentos)
         import mlflow
@@ -153,7 +191,8 @@ def main(argv=None) -> Path:
                                 "artifact_size_mb": pred.metadata["artifact_size_mb"]})
             mlflow.log_artifact(str(out_dir / "metadata.json"))
             mlflow.log_artifact(str(out_dir / "model.joblib"))
-            mlflow.log_artifact(str(ROOT / "src" / "vision" / "recipe.py"))
+            mlflow.log_artifact(str(final_snap))
+            mlflow.set_tag("code_snapshot_sha256", snap_sha)
     except Exception as e:  # noqa: BLE001
         print("MLflow no disponible:", e)
     return out_dir

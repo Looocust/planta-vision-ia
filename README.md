@@ -43,7 +43,7 @@ make up
 |---|---|
 | `make test` | Pruebas unitarias e integración (visión + agente, sin red) |
 | `make notebook` | Re-ejecuta el notebook de punta a punta |
-| `make train` | Re-entrena y exporta `models/vision-1.0.0/` |
+| `make train` | Re-entrena y exporta `models/vision-1.0.1/` |
 | `make eval` | Evaluación reproducible del agente con el LLM real |
 | `make report` | Regenera el reporte PDF de visión |
 | `make finops` | Regenera la hoja de costos |
@@ -58,7 +58,7 @@ src/vision/            librería de visión (datos, protocolos, características
 services/vision_api/   API de inferencia FastAPI, independiente del agente (:8001)
 services/agent/        agente LangGraph + API + UI (:8002); plant/ = backends de planta simulados (SQLite)
 configs/               umbrales, roles, políticas, precios de LLM (sin secretos)
-models/vision-1.0.0/   artefacto versionado del modelo + metadata (hash de datos y de artefacto)
+models/vision-1.0.1/   artefacto versionado del modelo + metadata (hash de datos y de artefacto)
 eval/agent/            casos de evaluación y runner
 docs/                  reportes, arquitectura, cloud, seguridad, validación
 ```

@@ -32,7 +32,7 @@ ALLOWED_TYPES = {"image/png", "image/jpeg", "image/jpg"}
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", protected_namespaces=())
-    model_dir: str = str(ROOT / "models" / "vision-1.0.0")
+    model_dir: str = str(ROOT / "models" / "vision-1.0.1")
     models_root: str = str(ROOT / "models")
     admin_token: str = ""
     allow_fault_injection: bool = False
@@ -171,8 +171,8 @@ async def predict(request: Request, file: UploadFile = File(...), top_k: int = F
             raise HTTPException(500, detail="falla inyectada (X-Fault: 500)")
         if x_fault == "timeout":
             await asyncio.sleep(settings.fault_timeout_s)
-    if not 0 <= top_k <= 50:
-        raise HTTPException(400, detail="top_k debe estar en [0, 50]")
+    if not 1 <= top_k <= 20:
+        raise HTTPException(422, detail="top_k debe estar en [1, 20]")
     data = await _read_upload(file)
     p = holder.get()
     try:
@@ -265,6 +265,8 @@ def promote(body: PromoteIn, request: Request, x_admin_token: str | None = Heade
         raise HTTPException(409, detail={"msg": "candidato insuficiente; no se promueve", "issues": staged.get("issues")})
     try:
         dst = promote_candidate(body.candidate_version, settings.models_root)
+    except FileExistsError as e:
+        raise HTTPException(409, detail=str(e)) from e
     except (ValueError, FileNotFoundError) as e:
         raise HTTPException(404, detail=str(e)) from e
     new = VisionPredictor.load(dst)

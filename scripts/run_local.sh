@@ -8,7 +8,7 @@
 # Pasos:
 #   1. uv sync (dependencias bloqueadas por uv.lock)
 #   2. Descarga COIL-100 si falta y verifica su SHA-256
-#   3. Entrena el modelo si el artefacto models/vision-1.0.0 no está completo
+#   3. Entrena el modelo si el artefacto models/vision-1.0.1 no está completo
 #      (metadata.json + model.joblib)
 #   4. Arranca la API de visión (8001) y el agente (8002) en segundo plano,
 #      con logs en data/runtime/logs, y espera a que /health devuelva status "ok"
@@ -50,7 +50,7 @@ fi
 export DATA_DIR
 IMG_DIR="$DATA_DIR"
 RAW_DIR="$(dirname "$IMG_DIR")"          # el zip se descarga y descomprime aquí (crea coil-100/)
-MODEL_DIR="${MODEL_DIR:-models/vision-1.0.0}"
+MODEL_DIR="${MODEL_DIR:-models/vision-1.0.1}"
 # Archivos que debe tener un artefacto completo (separados por espacio).
 MODEL_REQUIRED_FILES="${MODEL_REQUIRED_FILES:-metadata.json model.joblib}"
 VISION_PORT="${VISION_PORT:-8001}"

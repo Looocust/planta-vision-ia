@@ -43,6 +43,12 @@ def estimate_angle(dists: np.ndarray, ref_angles: np.ndarray, k_refine: int = 2,
     """
     dists = np.asarray(dists, float)
     ref_angles = np.asarray(ref_angles, float)
+    # varias referencias con el mismo ángulo (p. ej. copias aumentadas): se conserva la más cercana por ángulo
+    ua, inv = np.unique(np.round(ref_angles, 3), return_inverse=True)
+    if len(ua) < len(ref_angles):
+        dmin = np.full(len(ua), np.inf)
+        np.minimum.at(dmin, inv, dists)
+        dists, ref_angles = dmin, ua
     order = np.argsort(dists)
     d1 = max(dists[order[0]], 1e-9)
     mode = ref_angles[order[0]]

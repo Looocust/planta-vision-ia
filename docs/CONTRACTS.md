@@ -27,7 +27,7 @@ Este documento fija las interfaces entre las piezas del sistema para que cada un
 ## Servicio de visión (HTTP, puerto 8001)
 
 ### `GET /health`
-`{"status": "ok", "model_version": "vision-1.0.0"}`
+`{"status": "ok", "model_version": "vision-1.0.1"}`
 
 ### `GET /v1/model`
 Metadatos del artefacto: versión, fecha, hash de datos, clases conocidas, umbrales vigentes, métricas resumidas.
@@ -40,7 +40,7 @@ Respuesta 200:
 ```json
 {
   "request_id": "uuid4",
-  "model_version": "vision-1.0.0",
+  "model_version": "vision-1.0.1",
   "quality": {"ok": true, "issues": [], "brightness": 0.42, "sharpness": 812.3, "width": 128, "height": 128},
   "object": {"label": "obj42", "confidence": 0.93, "known": true},
   "angle": {"degrees": 135.0, "uncertainty_deg": 4.2, "ambiguous": false},

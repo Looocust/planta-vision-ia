@@ -2,7 +2,7 @@
 #   cp .env.example .env   # y completar GOOGLE_API_KEY
 #   make up-docker
 # Requisitos previos en el host: dataset en data/raw/coil-100 y modelo completo en
-# models/vision-1.0.0 (metadata.json + model.joblib): make data && make train.
+# models/vision-1.0.1 (metadata.json + model.joblib): make data && make train.
 # Healthcheck = /health con status "ok" ("degraded" = modelo no cargado = no sano).
 # NOTA: no probado en esta máquina (Docker no instalado).
 
@@ -27,7 +27,7 @@ services:
       - "8001:8001"
     environment:
       ALLOW_FAULT_INJECTION: ${ALLOW_FAULT_INJECTION:-true}
-      MODEL_DIR: ${MODEL_DIR:-models/vision-1.0.0}
+      MODEL_DIR: ${MODEL_DIR:-models/vision-1.0.1}
       # Carpeta que contiene las imágenes (la API une DATA_DIR + image_id)
       DATA_DIR: data/raw/coil-100
     healthcheck:

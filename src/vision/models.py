@@ -90,7 +90,13 @@ class VisionModel:
             out["ambiguous"][i] = r["ambiguous"] or (pred[i] in self.symmetric_classes)
             if top_k:
                 dall = np.linalg.norm(self.ref_Z_ - z, axis=1)
-                o = np.argsort(dall)[:top_k]
+                o, seen = [], set()
+                for j in np.argsort(dall):  # una entrada por vista (las copias aumentadas comparten image_id)
+                    if self.ref_ids_[j] not in seen:
+                        seen.add(self.ref_ids_[j])
+                        o.append(j)
+                    if len(o) == top_k:
+                        break
                 scale = np.median(dall) + 1e-9
                 out["similar"].append([
                     {"label": str(self.ref_labels_[j]), "angle_deg": float(self.ref_angles_[j]),
@@ -128,7 +134,7 @@ def rotational_symmetry_score(Z: np.ndarray, angles: np.ndarray, min_sep: float 
     if S[S > 0].min() > 5:  # solo definido con referencias densas (paso 5°, como en producción)
         return float("nan")
     D = cdist(Z, Z)
-    np.fill_diagonal(D, np.inf)
+    D[S == 0] = np.inf  # excluye la propia vista y sus copias aumentadas (mismo ángulo)
     j = D.argmin(1)
     return float((circular_error(angles, angles[j]) >= min_sep).mean())
 

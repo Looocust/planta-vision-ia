@@ -64,7 +64,8 @@ def select_thresholds(correct_class, angle_err, confidence, angle_unc, ambiguous
                       is_unknown=None, target_error: float = 0.02,
                       conf_grid=(0.0, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99),
                       unc_grid=(2.5, 5.0, 7.5, 10.0, 12.5, 15.0, 20.0, 30.0),
-                      fallback_angle_uncertainty: float = 5.0, min_act: int = 50) -> tuple[DecisionThresholds, dict]:
+                      fallback_angle_uncertainty: float = 5.0, min_act: int = 50,
+                      max_unknown_false_accept: float = 0.05, min_unknown: int = 100) -> tuple[DecisionThresholds, dict]:
     """Elige umbrales SOLO con datos de validación.
 
     unknown_distance: si hay pseudo-desconocidos en validación → maximiza Youden J; si no → percentil 99 de
@@ -74,7 +75,9 @@ def select_thresholds(correct_class, angle_err, confidence, angle_unc, ambiguous
     (clase incorrecta o |Δθ|>10°) ≤ target_error; si ninguno lo cumple, el de menor error.
     La automatización solo se habilita si en validación hay ≥ min_act decisiones ACT y su error puntual es
     ≤ target_error (se reporta además el intervalo de Wilson 95 %); si no, se desactiva (umbral angular -1 →
-    todo REVIEW) y el riesgo se reporta como N/A. Si la validación no es informativa para el ángulo (p. ej. protocolo C: las vistas de validación quedan a
+    todo REVIEW) y el riesgo se reporta como N/A. Si la validación incluye pseudo-desconocidos (≥ min_unknown
+    vistas), además se exige que como mucho `max_unknown_false_accept` (5 %) de ellas llegue a ACT (se sube la
+    confianza mínima si hace falta); si no se logra, también se desactiva. Si la validación no es informativa para el ángulo (p. ej. protocolo C: las vistas de validación quedan a
     30° de las de ajuste, el test a ≤15°), se usa el prior 5° = mitad de la tolerancia de ±10°.
     """
     correct_class = np.asarray(correct_class, bool)
@@ -132,21 +135,51 @@ def select_thresholds(correct_class, angle_err, confidence, angle_unc, ambiguous
         if best is None or key > best[0]:
             best = (key, u)
     unc_th = best[1] if best is not None else fallback_angle_uncertainty
+    unk = ~known
+
+    def _stats(th_):
+        act_ = decide_batch(nn_distance, confidence, angle_unc, ambiguous, th_) == "ACT"
+        n_a, n_e = int(act_.sum()), int((act_ & ~success).sum())
+        fa_k, fa_n = int((act_ & unk).sum()), int(unk.sum())
+        return act_, n_a, n_e, fa_k, fa_n
+
+    # criterio explícito de falsa aceptación de desconocidos (si la validación tiene pseudo-desconocidos):
+    # ≤ max_unknown_false_accept con ≥ min_unknown casos; si no se cumple, se sube la confianza mínima
     th = DecisionThresholds(conf_th, unc_th, unk_d)
-    act = decide_batch(nn_distance, confidence, angle_unc, ambiguous, th) == "ACT"
-    n_act, n_err = int(act.sum()), int((act & ~success).sum())
-    # factible solo con evidencia suficiente: ≥ min_act decisiones ACT en validación y error puntual ≤ objetivo
-    feasible = n_act >= min_act and (n_err / n_act) <= target_error
+    _, n_act, n_err, fa_k, fa_n = _stats(th)
+    if fa_n >= min_unknown and fa_k / fa_n > max_unknown_false_accept:
+        for c in sorted(conf_grid):
+            if c <= conf_th:
+                continue
+            t2 = DecisionThresholds(c, unc_th, unk_d)
+            _, _, _, k2, _ = _stats(t2)
+            if k2 / fa_n <= max_unknown_false_accept:
+                th = t2
+                break
+        _, n_act, n_err, fa_k, fa_n = _stats(th)
+    fa_ok = fa_n < min_unknown or fa_k / fa_n <= max_unknown_false_accept
+    # factible solo con evidencia suficiente: ≥ min_act ACT, error puntual ≤ objetivo y criterio de desconocidos
+    feasible = n_act >= min_act and (n_err / n_act) <= target_error and fa_ok
     lo, hi = wilson_interval(n_err, n_act)
-    info = {"val_n_act": n_act, "val_n_errors": n_err, "val_coverage": float(act.mean()),
-            "val_error_among_act": (n_err / n_act) if n_act else None, "val_error_wilson95": [lo, hi],
-            "target_error": target_error, "min_act": min_act,
+    candidate = {"thresholds": th.to_dict(), "val_n_act": n_act, "val_n_errors": n_err,
+                 "val_coverage": n_act / len(confidence), "val_error_among_act": (n_err / n_act) if n_act else None,
+                 "val_error_wilson95": [lo, hi]}
+    ufa = {"k": fa_k, "n": fa_n, "rate": (fa_k / fa_n) if fa_n else None,
+           "wilson95": list(wilson_interval(fa_k, fa_n)), "max_allowed": max_unknown_false_accept,
+           "min_cases": min_unknown, "ok": bool(fa_ok)}
+    info = {**candidate, "target_error": target_error, "min_act": min_act,
+            "unknown_false_accept_val": ufa,
             "angle_threshold_source": "validation" if best is not None else "prior_tolerance_half",
             "automation_enabled": bool(feasible), "grid": table}
     if not feasible:
-        # sin evidencia suficiente de riesgo ≤ objetivo → automatización desactivada (todo a REVIEW)
-        th = DecisionThresholds(conf_th, -1.0, unk_d)
-        info["val_coverage"] = 0.0
+        # política EFECTIVA: automatización desactivada (todo a REVIEW) → 0 ACT, riesgo null.
+        # Las cifras del candidato descartado se conservan aparte.
+        th = DecisionThresholds(th.min_class_confidence, -1.0, unk_d)
+        info.update(val_n_act=0, val_n_errors=0, val_coverage=0.0, val_error_among_act=None,
+                    val_error_wilson95=[None, None], discarded_candidate=candidate)
+        info["unknown_false_accept_val"] = {**ufa, "k": 0, "rate": 0.0 if fa_n else None,
+                                            "wilson95": list(wilson_interval(0, fa_n)),
+                                            "discarded_candidate_rate": ufa["rate"]}
     return th, info
 
 

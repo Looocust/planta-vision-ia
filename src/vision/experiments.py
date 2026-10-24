@@ -43,6 +43,18 @@ def load_all(feature_cfg: FeatureConfig = FeatureConfig(), use_cache: bool = Tru
     else:
         X = extract_batch(ds.images, feature_cfg, n_jobs=8)
         np.savez(fc, X=X, cfg=json.dumps(feature_cfg.to_dict()))
+    # bancos de perturbaciones (semillas fijas): "aug" se usa SOLO para aumentar vistas de entrenamiento y
+    # "pert" SOLO para perturbar vistas de validación; las vistas de test nunca se indexan en estos bancos.
+    from .augment import perturb_batch
+
+    banks = {}
+    for name, seed in (("classic_aug", 1001), ("classic_pert", 2002)):
+        bp = RUNTIME / f"{name}_features.npz"
+        if use_cache and bp.exists() and json.loads(str(np.load(bp)["cfg"])) == feature_cfg.to_dict():
+            banks[name] = np.load(bp)["X"]
+        else:
+            banks[name] = extract_batch(perturb_batch(ds.images, seed), feature_cfg, n_jobs=8)
+            np.savez(bp, X=banks[name], cfg=json.dumps(feature_cfg.to_dict()))
     rp = raw_pixels(ds.images, 32)
     emb_path = RUNTIME / "resnet18_embeddings.npz"
     if use_cache and emb_path.exists():
@@ -52,7 +64,8 @@ def load_all(feature_cfg: FeatureConfig = FeatureConfig(), use_cache: bool = Tru
 
         E = resnet_embeddings(ds.images)
         np.savez(emb_path, emb=E, image_ids=ds.image_ids)
-    return {"ds": ds, "names": label_names(ds.labels), "classic": X, "raw": rp, "resnet18": E}
+    return {"ds": ds, "names": label_names(ds.labels), "classic": X, "raw": rp, "resnet18": E, **banks,
+            "feature_cfg": feature_cfg}
 
 
 # ---------------------------------------------------------------- utilidades de evaluación

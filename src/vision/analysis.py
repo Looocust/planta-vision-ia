@@ -346,10 +346,27 @@ def _pick(m: dict) -> dict:
     return {k: m[k] for k in keys if k in m}
 
 
+def strict_json(o):
+    """NaN/inf → null (JSON estándar); numpy → tipos nativos."""
+    if isinstance(o, dict):
+        return {str(k): strict_json(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [strict_json(v) for v in o]
+    if isinstance(o, np.ndarray):
+        return strict_json(o.tolist())
+    if isinstance(o, (np.bool_,)):
+        return bool(o)
+    if isinstance(o, (np.integer,)):
+        return int(o)
+    if isinstance(o, (float, np.floating)):
+        return float(o) if np.isfinite(o) else None
+    return o
+
+
 def write_results(results: dict, path: Path | None = None) -> Path:
     path = Path(path or PROJECT_ROOT / "docs" / "report" / "results.json")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(results, indent=1, ensure_ascii=False, default=float))
+    path.write_text(json.dumps(strict_json(results), indent=1, ensure_ascii=False, allow_nan=False))
     return path
 
 
@@ -384,10 +401,12 @@ def recipe_row(r: dict) -> dict:
     return row
 
 
-def build_recipe_summary(recipe_results: dict, baselines: dict) -> dict:
+def build_recipe_summary(recipe_results: dict, baselines: dict, nested: dict | None = None) -> dict:
     out = {}
     for p in RECIPE_PROTOCOLS:
         out[p] = {"recipe_classic": recipe_row(recipe_results["classic"][p])}
+        if nested and p in nested:
+            out[p]["nested_classic"] = {**recipe_row(nested[p]), "selected_candidate": nested[p]["selected_candidate"]}
         if "resnet18" in recipe_results and p in recipe_results["resnet18"]:
             out[p]["recipe_resnet18"] = recipe_row(recipe_results["resnet18"][p])
         b = baselines[p]
@@ -404,20 +423,22 @@ def recipe_bars(summary: dict):
                ("coverage_act", "Fracción automatizada (ACT)"), ("error_among_act", "Error entre ACT")]
     fig, axes = plt.subplots(1, len(metrics), figsize=(16, 3.4))
     w = 0.27
-    series = [("Receta clásica (prod.)", "recipe_classic", PALETTE["classic"]),
+    w = 0.2
+    series = [("Selección anidada (independiente)", "nested_classic", "#1b4965"),
+              ("Config. desplegada (clásica)", "recipe_classic", PALETTE["classic"]),
               ("Base píxeles 1-NN", "baseline_raw_1nn", PALETTE["baseline"]),
-              ("Receta con ResNet18", "recipe_resnet18", PALETTE["resnet18"])]
+              ("Config. desplegada con ResNet18", "recipe_resnet18", PALETTE["resnet18"])]
     for k, (m, title) in enumerate(metrics):
         ax = axes[k]
         for s, (name, key, col) in enumerate(series):
             vals = [summary[p].get(key, {}).get(m) for p in prots]
             vals = [np.nan if v is None else v for v in vals]
-            ax.bar(np.arange(len(prots)) + (s - 1) * w, vals, w, label=name, color=col)
+            ax.bar(np.arange(len(prots)) + (s - 1.5) * w, vals, w, label=name, color=col)
         ax.set_xticks(range(len(prots)), [p.replace("_strict", "\nestricto") for p in prots], fontsize=8)
         ax.set_title(title, fontsize=9)
         ax.set_ylim(0, 1.05)
     axes[0].legend(fontsize=7, loc="lower left")
-    fig.suptitle("Receta congelada evaluada con test independiente por protocolo (N/A = sin ACT → barra ausente)", fontsize=9)
+    fig.suptitle("Resultados en test por protocolo (barra ausente = N/A, sin ACT)", fontsize=9)
     fig.tight_layout()
     return fig
 
@@ -448,3 +469,18 @@ def sweep_figure(recipe_res: dict, protocols=("A", "D")):
         ax.legend(fontsize=7)
     fig.tight_layout()
     return fig
+
+
+def robustness_table(rob: dict) -> list[dict]:
+    rows = []
+    for name, r in rob.items():
+        e = r["error_among_act"]
+        row = {"perturbación": name, "exactitud": r.get("class_accuracy"), "MAE°": r.get("angle_mae_deg"),
+               "éxito e2e": r.get("end_to_end_success"), "% ACT": r["coverage_act"], "n ACT": r["n_act"],
+               "error|ACT": e["rate"], "IC95": e["wilson95"], "conocidos rechazados": r.get("reject_rate_known")}
+        if "unknown_reaches_act" in r:
+            row["desconocidos a ACT"] = r["unknown_reaches_act"]["rate"]
+            row["IC95 desconocidos a ACT"] = r["unknown_reaches_act"]["wilson95"]
+            row["desconocidos rechazados"] = r["unknown_rejected"]["rate"]
+        rows.append(row)
+    return rows
