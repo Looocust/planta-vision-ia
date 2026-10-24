@@ -5,6 +5,7 @@
       "default": "pending",
       "enum": [
         "pending",
+        "label_proposed",
         "labeled"
       ],
       "title": "Status",

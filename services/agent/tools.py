@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import sqlite3
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -20,11 +21,11 @@ from typing import Any, Callable, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from services.agent import rbac
-from services.agent.config import policy_cfg
+from services.agent.config import policy_cfg, vision_bound_plants
 from services.agent.context import ToolContext
 from services.agent.knowledge import get_index
 from services.agent.plant.db import execute, rows, shift_key
-from services.agent.security import looks_like_injection, mask_person, wrap_untrusted
+from services.agent.security import looks_like_injection, mask_person, redact, wrap_untrusted
 from services.agent.vision_client import VisionUnavailable
 
 LABEL_RE = r"^obj([1-9]|[1-9][0-9]|100)$"
@@ -126,11 +127,11 @@ def inspect_images(ctx: ToolContext, a: InspectImagesIn) -> dict:
     results = []
     degraded = False
     for image_id in a.image_ids:
-        up = rows(ctx.con, "SELECT * FROM uploads WHERE image_id=? AND plant_id=? AND line_id=?",
-                  (image_id, ctx.plant_id, ctx.line_id))
+        up = rows(ctx.con, "SELECT * FROM uploads WHERE image_id=? AND plant_id=? AND line_id=? AND expires_at>?",
+                  (image_id, ctx.plant_id, ctx.line_id, _iso(ctx.sec_now)))
         if not up:
             results.append({"image_id": image_id, "status": "not_found_in_scope",
-                            "message": "La imagen no existe en las cargas de esta planta/línea."})
+                            "message": "La imagen no existe (o expiró) en las cargas de esta planta/línea."})
             continue
         try:
             with open(up[0]["path"], "rb") as f:
@@ -199,15 +200,20 @@ def enqueue_for_review(ctx: ToolContext, a: EnqueueForReviewIn) -> dict:
     if ex:
         return {"case_id": ex[0]["case_id"], "status": "already_queued", "idempotent": True}
     case = _uid("RC")
-    execute(ctx.con, "INSERT INTO review_queue VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (case, ctx.plant_id, ctx.line_id, a.image_id, None, i["request_id"], i["label"], i["confidence"],
-             i["angle"], i["angle_uncertainty"], i["reasons"], "pending", _iso(ctx.now), None, None, None, None,
-             a.note))
+    try:  # índice UNIQUE(plant_id, image_id): una imagen => un caso, incluso con llamadas concurrentes
+        execute(ctx.con, "INSERT INTO review_queue VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (case, ctx.plant_id, ctx.line_id, a.image_id, None, i["request_id"], i["label"], i["confidence"],
+                 i["angle"], i["angle_uncertainty"], i["reasons"], "pending", _iso(ctx.now), None, None, None, None,
+                 a.note, None, None, None, None))
+    except sqlite3.IntegrityError:
+        ctx.con.rollback()
+        ex = rows(ctx.con, "SELECT case_id FROM review_queue WHERE image_id=? AND plant_id=?", (a.image_id, ctx.plant_id))
+        return {"case_id": ex[0]["case_id"], "status": "already_queued", "idempotent": True}
     return {"case_id": case, "status": "queued", "decision": i["decision"], "reasons": json.loads(i["reasons"] or "[]")}
 
 
 class ListReviewQueueIn(_In):
-    status: Literal["pending", "labeled"] = "pending"
+    status: Literal["pending", "label_proposed", "labeled"] = "pending"
     line_id: str | None = Field(None, pattern=LINE_RE, description="Línea de la misma planta (opcional)")
     limit: int = Field(10, ge=1, le=25)
 
@@ -229,7 +235,9 @@ def list_review_queue(ctx: ToolContext, a: ListReviewQueueIn) -> dict:
                                     "angle_deg": c["predicted_angle"], "angle_uncertainty_deg": c["angle_uncertainty"]},
                       "reasons": json.loads(c["reasons"] or "[]"),
                       **({"human_label": c["label"], "human_angle_deg": c["angle_deg"],
-                          "labeled_by": c["labeled_by"]} if c["status"] == "labeled" else {})})
+                          "labeled_by": c["labeled_by"]} if c["status"] == "labeled" else {}),
+                      **({"proposed_label": c["proposed_label"], "proposed_angle_deg": c["proposed_angle"],
+                          "awaiting_confirmation_by_human": True} if c["status"] == "label_proposed" else {})})
     return {"plant_id": ctx.plant_id, "status": a.status, "count": len(cases), "cases": cases}
 
 
@@ -241,6 +249,9 @@ class SubmitReviewLabelIn(_In):
 
 
 def submit_review_label(ctx: ToolContext, a: SubmitReviewLabelIn) -> dict:
+    """PROPONE la etiqueta humana. El LLM nunca escribe en el dataset: la etiqueta queda 'label_proposed' y solo
+    pasa a retraining_dataset cuando el humano verificado la confirma vía POST /v1/review-labels/{case_id}
+    (services/agent/review.py), en una transacción."""
     c = rows(ctx.con, "SELECT * FROM review_queue WHERE case_id=? AND plant_id=?", (a.case_id, ctx.plant_id))
     if not c:
         raise ToolError("not_found", f"El caso {a.case_id} no existe en la planta {ctx.plant_id}.")
@@ -249,15 +260,14 @@ def submit_review_label(ctx: ToolContext, a: SubmitReviewLabelIn) -> dict:
         if c["label"] == a.label and abs((c["angle_deg"] or 0) - a.angle_deg) < 1e-6:
             return {"case_id": a.case_id, "status": "already_labeled", "idempotent": True}
         raise ToolError("conflict", f"El caso {a.case_id} ya fue etiquetado como {c['label']} @ {c['angle_deg']}°.")
-    execute(ctx.con, "UPDATE review_queue SET status='labeled', labeled_by=?, label=?, angle_deg=?, labeled_at=?, "
-                     "comment=? WHERE case_id=?",
-            (ctx.user_id, a.label, a.angle_deg, _iso(ctx.now), a.comment, a.case_id))
-    sid = _uid("DS")
-    execute(ctx.con, "INSERT OR IGNORE INTO retraining_dataset VALUES(?,?,?,?,?,?,?,?,?,?)",
-            (sid, a.case_id, ctx.plant_id, c["line_id"], c["image_ref"] or c["image_id"], a.label, a.angle_deg,
-             "human_review", ctx.user_id, _iso(ctx.now)))
-    return {"case_id": a.case_id, "status": "labeled", "retraining_sample_id": sid, "label": a.label,
-            "angle_deg": a.angle_deg, "dataset": "retraining_dataset (pendiente de próximo entrenamiento)"}
+    execute(ctx.con, "UPDATE review_queue SET status='label_proposed', proposed_label=?, proposed_angle=?, "
+                     "proposed_by=?, proposed_at=?, comment=? WHERE case_id=? AND status IN ('pending','label_proposed')",
+            (a.label, a.angle_deg, ctx.user_id, _iso(ctx.sec_now), a.comment, a.case_id))
+    return {"case_id": a.case_id, "status": "awaiting_human_confirmation", "proposed_label": a.label,
+            "proposed_angle_deg": a.angle_deg,
+            "message": ("Etiqueta PROPUESTA, aún no está en el dataset. El usuario debe confirmarla en el panel "
+                        "'Etiquetas por confirmar' (POST /v1/review-labels/{case_id})."),
+            "_pending_label": True}
 
 
 # ----------------------------------------------------------------------------- metrics
@@ -343,7 +353,8 @@ class GetModelVersionsIn(_In):
 
 
 def get_model_versions(ctx: ToolContext, a: GetModelVersionsIn) -> dict:
-    reg = rows(ctx.con, "SELECT * FROM model_registry ORDER BY created_at")
+    reg = rows(ctx.con, "SELECT * FROM model_registry WHERE plant_id IS NULL OR plant_id=? ORDER BY created_at",
+               (ctx.plant_id,))
     lines = [r["line_id"] for r in rows(ctx.con, "SELECT line_id FROM lines WHERE plant_id=?", (ctx.plant_id,))]
     deps = rows(ctx.con, f"SELECT * FROM model_deployments WHERE line_id IN ({','.join('?' * len(lines))}) ORDER BY ts",
                 tuple(lines))
@@ -416,7 +427,7 @@ class ListTicketsIn(_In):
 
 
 def _ticket_view(t: dict) -> dict:
-    return {"ticket_id": t["ticket_id"], "line_id": t["line_id"], "title": t["title"], "severity": t["severity"],
+    return {"ticket_id": t["ticket_id"], "line_id": t["line_id"], "title": redact(t["title"] or ""), "severity": t["severity"],
             "category": t["category"], "status": t["status"], "created_at": t["created_at"],
             "created_by": t["created_by"], "escalated_to": t["escalated_to"],
             "description": wrap_untrusted(t["description"] or "")}
@@ -492,6 +503,14 @@ class StageNewSkuIn(_In):
     image_ids: list[str] = Field(..., min_length=1, max_length=72, description="Vistas subidas en esta sesión")
     angles: list[float] = Field(..., min_length=1, max_length=72, description="Ángulo de cada vista (misma longitud)")
 
+    @field_validator("image_ids")
+    @classmethod
+    def _ids(cls, v):
+        bad = [i for i in v if not re.match(IMAGE_ID_RE, i)]
+        if bad:  # hallado en la evaluación: el LLM copió un id con una coma final
+            raise ValueError(f"image_id inválido: {bad}")
+        return v
+
 
 def stage_new_sku(ctx: ToolContext, a: StageNewSkuIn) -> dict:
     pol = policy_cfg()["sku_onboarding"]
@@ -502,24 +521,34 @@ def stage_new_sku(ctx: ToolContext, a: StageNewSkuIn) -> dict:
         raise ToolError("invalid_args", "Todos los ángulos deben estar en [0, 360).")
     if re.match(LABEL_RE, a.sku):
         raise ToolError("invalid_args", f"{a.sku} ya es una clase existente; use un identificador nuevo.")
-    uniq = sorted(set(a.angles))
-    coverage = (uniq[-1] - uniq[0]) if len(uniq) > 1 else 0
+    _require_bound_vision(ctx, "stage_new_sku")
+    if len(set(a.image_ids)) != len(a.image_ids):
+        raise ToolError("invalid_args", "image_ids repetidos.")
+    coverage, max_gap = circular_coverage(a.angles)
     if len(a.image_ids) < pol["min_views"]:
         issues.append(f"vistas insuficientes: {len(a.image_ids)} < {pol['min_views']}")
+    if len(set(round(x, 3) for x in a.angles)) != len(a.angles):
+        issues.append("ángulos repetidos: cada vista debe tener un ángulo distinto")
     if coverage < pol["min_angle_coverage_deg"]:
-        issues.append(f"cobertura angular insuficiente: {coverage:.0f}° < {pol['min_angle_coverage_deg']}°")
-    imgs = []
+        issues.append(f"cobertura angular circular insuficiente: {coverage:.0f}° < {pol['min_angle_coverage_deg']}°")
+    if max_gap > pol["max_angle_gap_deg"]:
+        issues.append(f"hueco angular de {max_gap:.0f}° > máximo {pol['max_angle_gap_deg']}°")
+    imgs, hashes = [], {}
     for iid in a.image_ids:
-        up = rows(ctx.con, "SELECT path FROM uploads WHERE image_id=? AND plant_id=? AND line_id=?",
-                  (iid, ctx.plant_id, ctx.line_id))
+        up = rows(ctx.con, "SELECT path, sha256 FROM uploads WHERE image_id=? AND plant_id=? AND line_id=? AND expires_at>?",
+                  (iid, ctx.plant_id, ctx.line_id, _iso(ctx.sec_now)))
         if not up:
-            raise ToolError("not_found_in_scope", f"La imagen {iid} no existe en esta planta/línea.")
+            raise ToolError("not_found_in_scope", f"La imagen {iid} no existe (o expiró) en esta planta/línea.")
+        hashes.setdefault(up[0]["sha256"], []).append(iid)
         with open(up[0]["path"], "rb") as f:
             imgs.append((f"{iid}.png", f.read()))
+    dups = [v for v in hashes.values() if len(v) > 1]
+    if dups:
+        issues.append(f"vistas duplicadas (mismo contenido): {dups}")
     if issues:  # validación determinista previa: no se envía a staging si es insuficiente
         return {"sku": a.sku, "sufficient": False, "issues": issues, "staged": False,
                 "next_step": "Capturar más vistas según SOP-SKU-05 §SKU-05.1 y reintentar."}
-    key = hashlib.sha256(f"{ctx.plant_id}|{a.sku}|{sorted(a.image_ids)}".encode()).hexdigest()[:24]
+    key = hashlib.sha256(f"{ctx.plant_id}|{a.sku}|{sorted(zip(a.image_ids, a.angles))}".encode()).hexdigest()[:24]
     ex = rows(ctx.con, "SELECT * FROM sku_staging WHERE idempotency_key=?", (key,))
     if ex:
         return {"sku": a.sku, "status": "already_staged", "idempotent": True,
@@ -537,8 +566,8 @@ def stage_new_sku(ctx: ToolContext, a: StageNewSkuIn) -> dict:
             (_uid("STG"), ctx.plant_id, a.sku, cand, r.get("n_views"), int(bool(r.get("sufficient"))),
              json.dumps(r.get("issues") or []), json.dumps(metrics), ctx.user_id, _iso(ctx.now), key))
     if cand:
-        execute(ctx.con, "INSERT OR IGNORE INTO model_registry VALUES(?,?,?,?,?,?)",
-                (cand, "staging", _iso(ctx.now), None, json.dumps(metrics), f"Candidato con SKU {a.sku}"))
+        execute(ctx.con, "INSERT OR IGNORE INTO model_registry VALUES(?,?,?,?,?,?,?)",
+                (cand, "staging", _iso(ctx.now), None, json.dumps(metrics), f"Candidato con SKU {a.sku}", ctx.plant_id))
     gates = _promotion_gates(ctx, cand) if cand else {"passes": False, "issues": ["sin candidato"]}
     return {"sku": a.sku, "staged": bool(cand), "candidate_version": cand, "sufficient": r.get("sufficient"),
             "service_issues": r.get("issues"), "metrics": metrics, "promotion_gates": gates,
@@ -546,29 +575,80 @@ def stage_new_sku(ctx: ToolContext, a: StageNewSkuIn) -> dict:
                           "(requiere aprobación de otro rol autorizado).")}
 
 
+def circular_coverage(angles: list[float]) -> tuple[float, float]:
+    """Cobertura angular CIRCULAR = 360 - mayor hueco entre ángulos consecutivos (con vuelta en 360)."""
+    u = sorted({x % 360 for x in angles})
+    if len(u) < 2:
+        return 0.0, 360.0
+    gaps = [b - a for a, b in zip(u, u[1:])] + [u[0] + 360 - u[-1]]
+    return 360 - max(gaps), max(gaps)
+
+
+def _require_bound_vision(ctx: ToolContext, op: str) -> None:
+    if ctx.plant_id not in vision_bound_plants():
+        raise ToolError("vision_not_bound",
+                        f"La instancia de visión de esta demo está vinculada a {vision_bound_plants()}; '{op}' "
+                        f"modificaría un servicio que no pertenece a la planta {ctx.plant_id}. En producción cada "
+                        f"planta tiene su propia instancia de visión.")
+
+
+def _plant_production_metrics(ctx: ToolContext) -> tuple[str | None, dict]:
+    v = rows(ctx.con, "SELECT model_version FROM lines WHERE line_id=?", (ctx.line_id,))
+    ver = v[0]["model_version"] if v else None
+    r = rows(ctx.con, "SELECT metrics FROM model_registry WHERE version=?", (ver,)) if ver else []
+    return ver, (json.loads(r[0]["metrics"] or "{}") if r else {})
+
+
 def _promotion_gates(ctx: ToolContext, version: str) -> dict:
+    """Gates deterministas de promoción, SIEMPRE con alcance de planta.
+
+    Candidato de modelo completo (reporta accuracy): accuracy >= mínimo, sin caída > tolerancia frente al modelo
+    que corre hoy en la línea, y MAE angular sin empeorar más de la tolerancia.
+    Candidato de alta de SKU (métricas LOO del servicio de staging): el servicio debe marcarlo suficiente, accuracy
+    LOO de clase >= mínimo, MAE angular LOO <= máximo, fracción dentro de ±10° >= mínimo y sin confusión con un SKU
+    existente. Limitación documentada: el endpoint de staging no reporta regresión sobre las clases existentes; se
+    usa `confusable_with_known_sku` como proxy y la verificación completa queda para la validación offline.
+    """
     pol = policy_cfg()["risky_operations"]["promote_model"]
     reg = rows(ctx.con, "SELECT * FROM model_registry WHERE version=?", (version,))
-    prod = rows(ctx.con, "SELECT * FROM model_registry WHERE status='production'")
-    if not reg:
-        return {"passes": False, "issues": [f"versión {version} no existe en el registro"]}
+    if not reg or reg[0]["plant_id"] != ctx.plant_id:
+        return {"passes": False, "issues": [f"la versión candidata {version} no existe en el staging de la planta "
+                                            f"{ctx.plant_id}"]}
     m = json.loads(reg[0]["metrics"] or "{}")
-    acc = m.get("accuracy", m.get("val_accuracy", m.get("loo_class_accuracy")))
     issues = []
-    if m.get("service_sufficient") is False:
-        issues.append(f"el servicio de visión marcó el candidato como insuficiente: {m.get('service_issues')}")
     if reg[0]["status"] != "staging":
         issues.append(f"la versión está en estado '{reg[0]['status']}', no 'staging'")
-    if acc is None:
-        issues.append("el candidato no reporta accuracy")
-    else:
-        if acc < pol["min_accuracy"]:
-            issues.append(f"accuracy {acc} < mínimo {pol['min_accuracy']}")
-        if prod:
-            pacc = json.loads(prod[0]["metrics"] or "{}").get("accuracy")
+    prod_ver, pm = _plant_production_metrics(ctx)
+    if "loo_class_accuracy" in m or "service_sufficient" in m:  # candidato de alta de SKU
+        acc = m.get("loo_class_accuracy")
+        if m.get("service_sufficient") is False:
+            issues.append(f"el servicio de visión marcó el candidato como insuficiente: {m.get('service_issues')}")
+        if "confusable_with_known_sku" in (m.get("service_issues") or []):
+            issues.append("el nuevo SKU es confundible con un SKU existente (riesgo de regresión)")
+        if acc is None or acc < pol["min_accuracy"]:
+            issues.append(f"accuracy LOO de clase {acc} < mínimo {pol['min_accuracy']}")
+        mae = m.get("loo_angle_mae_deg")
+        if mae is None or mae > pol["max_angle_mae_deg"]:
+            issues.append(f"MAE angular LOO {mae} > máximo {pol['max_angle_mae_deg']}° (o no reportado)")
+        w10 = m.get("loo_angle_within_10")
+        if w10 is None or w10 < pol["min_angle_within_10"]:
+            issues.append(f"fracción de ángulos dentro de ±10° {w10} < mínimo {pol['min_angle_within_10']} (o no reportada)")
+    else:  # candidato de modelo completo
+        acc = m.get("accuracy")
+        if acc is None:
+            issues.append("el candidato no reporta accuracy")
+        else:
+            if acc < pol["min_accuracy"]:
+                issues.append(f"accuracy {acc} < mínimo {pol['min_accuracy']}")
+            pacc = pm.get("accuracy")
             if pacc is not None and acc < pacc - pol["max_accuracy_drop_vs_prod"]:
-                issues.append(f"accuracy {acc} cae más de {pol['max_accuracy_drop_vs_prod']} vs producción ({pacc})")
-    return {"passes": not issues, "issues": issues, "accuracy": acc}
+                issues.append(f"accuracy {acc} cae más de {pol['max_accuracy_drop_vs_prod']} vs {prod_ver} ({pacc})")
+        mae, pmae = m.get("angle_mae_deg"), pm.get("angle_mae_deg")
+        if mae is None:
+            issues.append("el candidato no reporta angle_mae_deg")
+        elif pmae is not None and mae > pmae + pol["max_angle_mae_increase_deg"]:
+            issues.append(f"MAE angular {mae}° empeora más de {pol['max_angle_mae_increase_deg']}° vs {prod_ver} ({pmae}°)")
+    return {"passes": not issues, "issues": issues, "accuracy": acc, "compared_against": prod_ver}
 
 
 # ----------------------------------------------------------------------------- risky operations
@@ -594,6 +674,8 @@ def validate_risky(ctx: ToolContext, op: str, line: str, params: dict) -> None:
     if "allowed_line_states" in pol and lr["state"] not in pol["allowed_line_states"]:
         raise ToolError("line_state", f"La línea {line} está '{lr['state']}'; {op} requiere estado "
                                       f"{pol['allowed_line_states']}.")
+    if op in ("set_threshold", "promote_model"):
+        _require_bound_vision(ctx, op)
     if op == "set_threshold":
         vals = {k: params.get(k) for k in pol["bounds"] if params.get(k) is not None}
         if not vals:
@@ -645,11 +727,11 @@ def request_risky_operation(ctx: ToolContext, a: RequestRiskyOperationIn) -> dic
     # la clave se libera al decidir (ver approvals.decide) para permitir solicitudes futuras idénticas
     execute(ctx.con, "INSERT INTO approvals VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (aid, ctx.plant_id, line, a.operation, json.dumps(params), a.justification, ctx.user_id, ctx.role,
-             ctx.session_id, "pending", _iso(ctx.now), _iso(ctx.now + timedelta(minutes=ttl)),
+             ctx.session_id, "pending", _iso(ctx.sec_now), _iso(ctx.sec_now + timedelta(minutes=ttl)),
              None, None, None, None, None, key))
     return {"approval_id": aid, "status": "pending", "operation": a.operation, "line_id": line, "params": params,
             "approver_roles": rbac.approver_roles(a.operation), "approver_must_differ_from": ctx.user_id,
-            "expires_at": _iso(ctx.now + timedelta(minutes=ttl)),
+            "expires_at": _iso(ctx.sec_now + timedelta(minutes=ttl)),
             "message": "Solicitud creada. NO se ha ejecutado: requiere aprobación explícita de otro usuario autorizado.",
             "_pending_approval": True}
 
@@ -709,12 +791,12 @@ def save_user_preference(ctx: ToolContext, a: SaveUserPreferenceIn) -> dict:
         raise ToolError("rejected", "El valor parece una instrucción (posible envenenamiento de memoria); no se guarda.")
     ttl = policy_cfg()["memory"]["preference_ttl_days"]
     execute(ctx.con, "INSERT OR REPLACE INTO user_memory VALUES(?,?,?,?,?)",
-            (ctx.user_id, a.key, a.value, _iso(ctx.now), _iso(ctx.now + timedelta(days=ttl))))
+            (ctx.user_id, a.key, redact(a.value), _iso(ctx.sec_now), _iso(ctx.sec_now + timedelta(days=ttl))))
     return {"saved": True, "key": a.key, "expires_in_days": ttl}
 
 
 def load_preferences(con, user_id: str, now: datetime) -> dict[str, str]:
-    return {r["key"]: r["value"] for r in rows(con, "SELECT key, value FROM user_memory WHERE user_id=? AND "
+    return {r["key"]: redact(r["value"]) for r in rows(con, "SELECT key, value FROM user_memory WHERE user_id=? AND "
                                                     "expires_at>?", (user_id, _iso(now)))}
 
 
@@ -738,9 +820,10 @@ TOOLS: dict[str, ToolSpec] = {t.name: t for t in [
              "crea caso en review_queue; idempotente por image_id"),
     ToolSpec("list_review_queue", "Lista casos de la cola de revisión humana con su evidencia y predicción.",
              ListReviewQueueIn, "read", list_review_queue),
-    ToolSpec("submit_review_label", "Registra la etiqueta y ángulo confirmados por un humano para un caso de la cola y "
-             "lo envía al dataset de reentrenamiento.", SubmitReviewLabelIn, "write", submit_review_label,
-             "marca caso + inserta en retraining_dataset; idempotente por case_id"),
+    ToolSpec("submit_review_label", "PROPONE la etiqueta y ángulo que el usuario indicó para un caso de la cola. No "
+             "escribe en el dataset: el usuario debe confirmarla en la UI ('Etiquetas por confirmar').",
+             SubmitReviewLabelIn, "write", submit_review_label,
+             "marca el caso como label_proposed; el dataset solo se escribe tras confirmación humana (review.py)"),
     ToolSpec("get_line_metrics", "Métricas estructuradas por hora y resumen (picks, rechazos, revisiones, fallos de "
              "agarre, confianza, versión de modelo) por turno o ventana, con línea base y eventos de línea.",
              GetLineMetricsIn, "read", get_line_metrics),

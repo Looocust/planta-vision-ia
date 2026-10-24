@@ -31,6 +31,8 @@
   <label>Usuario <select id="user"></select></label>
   <label>Planta <select id="plant"><option>P1</option><option>P2</option></select></label>
   <label>Línea <select id="line"><option>P1-L1</option><option>P1-L2</option><option>P2-L1</option></select></label>
+  <button type="button" id="login">Entrar (demo)</button>
+  <span class="meta" id="who">sin sesión</span>
   <label>Sesión <input id="session" size="10"></label>
 </header>
 <main>
@@ -48,6 +50,11 @@
       <input type="file" id="file" accept="image/png,image/jpeg" multiple>
     </div>
     <div class="card">
+      <b>Etiquetas por confirmar</b>
+      <div class="meta">El agente solo propone; tú confirmas lo que ves.</div>
+      <div id="labels"></div>
+    </div>
+    <div class="card">
       <b>Aprobaciones pendientes</b>
       <button class="secondary" id="refresh" type="button">Actualizar</button>
       <div id="aps"></div>
@@ -62,17 +69,29 @@ for (const [u,r] of Object.entries(USERS)) { const o=document.createElement("opt
 $("user").value = "u_sup_p1";
 $("session").value = "web-" + Math.random().toString(36).slice(2,8);
 let pending = [];
-const who = () => ({user_id:$("user").value, role:USERS[$("user").value], plant_id:$("plant").value, line_id:$("line").value});
+let TOKEN = null;  // identidad verificada: token firmado emitido por /v1/auth/demo-login (prod: Entra ID OIDC)
+const who = () => ({plant_id:$("plant").value, line_id:$("line").value});
+const auth = () => TOKEN ? {"Authorization": "Bearer " + TOKEN} : {};
+$("user").onchange = () => { TOKEN = null; $("who").textContent = "sin sesión (pulsa Entrar)"; };
+$("login").onclick = async () => {
+  const r = await fetch("/v1/auth/demo-login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user_id:$("user").value})});
+  const j = await r.json();
+  if (!r.ok) { add("Login: "+JSON.stringify(j.detail), "meta"); return; }
+  TOKEN = j.token; $("who").textContent = `${j.user_id} (${j.role}) · plantas ${j.plants.join(",")}`; loadAps();
+};
 function add(text, cls, meta) {  // textContent: la salida del LLM nunca se interpreta como HTML
   const d=document.createElement("div"); d.className="msg "+(cls||""); d.textContent=text; $("log").appendChild(d);
+  // evidencia: vistas similares del servicio de visión (solo URLs /v1/images/objN__A)
+  const urls = [...new Set((text||"").match(/https?:\/\/[\w.:-]+\/v1\/images\/obj\d+__\d+/g) || [])].slice(0,6);
+  if (urls.length) { const g=document.createElement("div"); for (const u of urls) { const im=document.createElement("img"); im.src=u; im.width=64; im.title=u.split("/").pop(); im.style.marginRight="4px"; g.appendChild(im);} $("log").appendChild(g); }
   if (meta) { const m=document.createElement("div"); m.className="meta"; m.textContent=meta; $("log").appendChild(m); }
   $("log").scrollTop = 1e9;
 }
 $("file").onchange = async e => {
   for (const f of e.target.files) {
     const fd = new FormData(); fd.append("file", f); const w=who();
-    for (const k of ["plant_id","line_id","user_id","role"]) fd.append(k, w[k]);
-    const r = await fetch("/v1/uploads",{method:"POST",body:fd}); const j=await r.json();
+    for (const k of ["plant_id","line_id"]) fd.append(k, w[k]);
+    const r = await fetch("/v1/uploads",{method:"POST",body:fd,headers:auth()}); const j=await r.json();
     if (r.ok) pending.push(j.image_id); else add("Error al subir: "+JSON.stringify(j.detail), "meta");
   }
   $("imgs").textContent = pending.join(", ") || "ninguna";
@@ -82,7 +101,7 @@ $("f").onsubmit = async e => {
   add("> "+text, "user"); $("msg").value="";
   const body = {...who(), session_id:$("session").value, message:text, image_ids:pending};
   pending=[]; $("imgs").textContent="ninguna";
-  const r = await fetch("/v1/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  const r = await fetch("/v1/chat",{method:"POST",headers:{"Content-Type":"application/json",...auth()},body:JSON.stringify(body)});
   const j = await r.json();
   if (!r.ok) { add("Error: "+JSON.stringify(j.detail), "meta"); return; }
   const tools = (j.tool_calls||[]).map(t=>`${t.tool}:${t.status}${t.reason?"("+t.reason+")":""}`).join(", ");
@@ -90,8 +109,10 @@ $("f").onsubmit = async e => {
   loadAps();
 };
 async function loadAps() {
-  const w=who(); const q=new URLSearchParams({plant_id:w.plant_id,user_id:w.user_id,role:w.role});
-  const r = await fetch("/v1/approvals?"+q); const box=$("aps"); box.textContent="";
+  if (!TOKEN) return;
+  const w=who(); const q=new URLSearchParams({plant_id:w.plant_id});
+  loadLabels(q);
+  const r = await fetch("/v1/approvals?"+q,{headers:auth()}); const box=$("aps"); box.textContent="";
   if (!r.ok) return; const j=await r.json();
   for (const a of j.pending) {
     const d=document.createElement("div"); d.className="ap";
@@ -100,8 +121,8 @@ async function loadAps() {
       const b=document.createElement("button"); b.type="button"; b.textContent = dec==="approve"?"Aprobar":"Rechazar";
       if (dec==="reject") b.className="secondary";
       b.onclick = async () => {
-        const w=who(); const rr = await fetch(`/v1/approvals/${a.approval_id}`,{method:"POST",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({approver_id:w.user_id, role:w.role, decision:dec, comment:"desde UI"})});
+        const rr = await fetch(`/v1/approvals/${a.approval_id}`,{method:"POST",headers:{"Content-Type":"application/json",...auth()},
+          body:JSON.stringify({decision:dec, comment:"desde UI"})});
         const jj = await rr.json(); add(`[Aprobación ${a.approval_id}] ` + (rr.ok ? (jj.session_message || jj.status) : JSON.stringify(jj.detail)), "meta"); loadAps();
       };
       d.appendChild(document.createElement("br")); d.appendChild(b);
@@ -110,7 +131,27 @@ async function loadAps() {
   }
   if (!j.pending.length) box.textContent = "Sin pendientes";
 }
-$("refresh").onclick = loadAps; loadAps();
+async function loadLabels(q) {
+  const r = await fetch("/v1/review-labels?"+q,{headers:auth()}); const box=$("labels"); box.textContent="";
+  if (!r.ok) return; const j=await r.json();
+  for (const c of j.pending) {
+    const d=document.createElement("div"); d.className="ap";
+    d.textContent = `${c.case_id} · ${c.image_ref||c.image_id} · propuesta: ${c.proposed_label} @ ${c.proposed_angle}° (modelo: ${c.predicted_label} ${c.predicted_confidence})`;
+    for (const dec of ["confirm","reject"]) {
+      const b=document.createElement("button"); b.type="button"; b.textContent = dec==="confirm"?"Confirmar":"Descartar";
+      if (dec==="reject") b.className="secondary";
+      b.onclick = async () => {
+        const rr = await fetch(`/v1/review-labels/${c.case_id}`,{method:"POST",headers:{"Content-Type":"application/json",...auth()},
+          body:JSON.stringify({decision:dec, label:c.proposed_label, angle_deg:c.proposed_angle})});
+        const jj = await rr.json(); add(`[Etiqueta ${c.case_id}] ` + (rr.ok ? jj.status : JSON.stringify(jj.detail)), "meta"); loadAps();
+      };
+      d.appendChild(document.createElement("br")); d.appendChild(b);
+    }
+    box.appendChild(d);
+  }
+  if (!j.pending.length) box.textContent = "Sin pendientes";
+}
+$("refresh").onclick = loadAps;
 </script>
 </body>
 </html>

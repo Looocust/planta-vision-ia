@@ -40,10 +40,10 @@ def free_port() -> int:
 
 def main():
     tmp = Path(tempfile.mkdtemp(prefix="vision_it_"))
-    shutil.copytree(ROOT / "models" / "vision-1.0.0", tmp / "vision-1.0.0")
+    shutil.copytree(ROOT / "models" / "vision-1.0.1", tmp / "vision-1.0.1")
     port = free_port()
     env = {**os.environ, "ADMIN_TOKEN": "it-token", "ALLOW_FAULT_INJECTION": "true", "FAULT_TIMEOUT_S": "8",
-           "MODELS_ROOT": str(tmp), "MODEL_DIR": str(tmp / "vision-1.0.0")}
+           "MODELS_ROOT": str(tmp), "MODEL_DIR": str(tmp / "vision-1.0.1")}
     proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "services.vision_api.app:app", "--port", str(port)],
                             cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
     url = f"http://127.0.0.1:{port}"

@@ -35,11 +35,13 @@ CREATE TABLE IF NOT EXISTS tickets(ticket_id TEXT PRIMARY KEY, plant_id TEXT, li
   escalated_to TEXT, escalation_reason TEXT, citations TEXT);
 CREATE TABLE IF NOT EXISTS review_queue(case_id TEXT PRIMARY KEY, plant_id TEXT, line_id TEXT, image_id TEXT, image_ref TEXT,
   inspection_request_id TEXT, predicted_label TEXT, predicted_confidence REAL, predicted_angle REAL, angle_uncertainty REAL,
-  reasons TEXT, status TEXT, created_at TEXT, labeled_by TEXT, label TEXT, angle_deg REAL, labeled_at TEXT, comment TEXT);
+  reasons TEXT, status TEXT, created_at TEXT, labeled_by TEXT, label TEXT, angle_deg REAL, labeled_at TEXT, comment TEXT,
+  proposed_label TEXT, proposed_angle REAL, proposed_by TEXT, proposed_at TEXT);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_review_image ON review_queue(plant_id, image_id) WHERE image_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS retraining_dataset(sample_id TEXT PRIMARY KEY, case_id TEXT UNIQUE, plant_id TEXT, line_id TEXT,
   image_ref TEXT, label TEXT, angle_deg REAL, source TEXT, added_by TEXT, added_at TEXT);
 CREATE TABLE IF NOT EXISTS model_registry(version TEXT PRIMARY KEY, status TEXT, created_at TEXT, deployed_at TEXT,
-  metrics TEXT, notes TEXT);
+  metrics TEXT, notes TEXT, plant_id TEXT);  -- plant_id NULL = versión base compartida; candidatos siempre con planta
 CREATE TABLE IF NOT EXISTS model_deployments(line_id TEXT, version TEXT, ts TEXT, kind TEXT, actor TEXT);
 CREATE TABLE IF NOT EXISTS inspections(request_id TEXT PRIMARY KEY, session_id TEXT, plant_id TEXT, line_id TEXT, image_id TEXT,
   decision TEXT, label TEXT, confidence REAL, angle REAL, angle_uncertainty REAL, reasons TEXT, model_version TEXT, ts TEXT);
@@ -134,8 +136,8 @@ def seed(con: sqlite3.Connection, now: datetime | None = None) -> None:
         upd = _iso(now - timedelta(days=3))
         con.executemany("INSERT INTO lines VALUES(?,?,?,?,?,?,?,?,?)", [
             ("P1-L1", "P1", "Línea 1 Picking", "running", 0.80, 20.0, 19.47, "vision-1.1.0", upd),
-            ("P1-L2", "P1", "Línea 2 Picking", "running", 0.80, 20.0, 19.47, "vision-1.0.0", upd),
-            ("P2-L1", "P2", "Línea 1 Medellín", "running", 0.80, 20.0, 19.47, "vision-1.0.0", upd),
+            ("P1-L2", "P1", "Línea 2 Picking", "running", 0.80, 20.0, 19.47, "vision-1.0.1", upd),
+            ("P2-L1", "P2", "Línea 1 Medellín", "running", 0.80, 20.0, 19.47, "vision-1.0.1", upd),
         ])
         start = now.replace(minute=0, second=0) - timedelta(hours=25)  # 23-oct 06:00 .. 24-oct 07:00
         cleaning = now.replace(hour=1, minute=50, second=0)
@@ -146,13 +148,13 @@ def seed(con: sqlite3.Connection, now: datetime | None = None) -> None:
                 partial = h.hour == now.hour and h.date() == now.date()
                 total = int((rnd.randint(560, 640)) * (0.5 if partial else 1.0))
                 rej, rev, gf, conf = 0.02, 0.03, 0.01, 0.92
-                version = "vision-1.0.0"
+                version = "vision-1.0.1"
                 exposure, bright, status, note = 8.0, 0.46, "ok", ""
                 if line == "P1-L1":
                     if h >= deploy.replace(minute=0) + timedelta(hours=1):
                         version = "vision-1.1.0"
                     elif h.hour == 2 and h.date() == now.date():
-                        version = "vision-1.0.0->vision-1.1.0"
+                        version = "vision-1.0.1->vision-1.1.0"
                     if h.date() < now.date() and 18 <= h.hour <= 20:
                         gf = {18: 0.06, 19: 0.08, 20: 0.05}[h.hour]
                     if h >= cleaning.replace(minute=0) + timedelta(hours=1) or (h.hour == 1 and h.date() == now.date()):
@@ -211,23 +213,26 @@ def seed(con: sqlite3.Connection, now: datetime | None = None) -> None:
              _iso(now - timedelta(days=1)), "seed-2001", None, None, None),
         ])
         for case, line, ref, lab, conf, ang, unc, reasons in REVIEW_SEED:
-            con.execute("INSERT INTO review_queue VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            con.execute("INSERT INTO review_queue VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (case, line.split("-")[0], line, None, ref, None, lab, conf, ang, unc, json.dumps(reasons),
-                         "pending", _iso(now - timedelta(hours=rnd.randint(1, 6))), None, None, None, None, None))
+                         "pending", _iso(now - timedelta(hours=rnd.randint(1, 6))), None, None, None, None, None,
+                         None, None, None, None))
         reg = [
-            ("vision-0.9.0", "archived", "2026-08-01T10:00:00", "2026-08-05T10:00:00", {"accuracy": 0.93, "angle_mae_deg": 9.8}, "Baseline"),
-            ("vision-1.0.0", "production", "2026-09-28T10:00:00", "2026-10-01T10:00:00", {"accuracy": 0.95, "angle_mae_deg": 7.1}, "Producción en P1-L2 y P2-L1"),
+            ("vision-0.9.0", "archived", "2026-08-01T10:00:00", "2026-08-05T10:00:00", {"accuracy": 0.93, "angle_mae_deg": 9.8}, "Baseline", None),
+            ("vision-1.0.0", "archived", "2026-09-28T10:00:00", "2026-10-01T10:00:00", {"accuracy": 0.95, "angle_mae_deg": 7.1}, "Primera versión productiva; reemplazada por 1.0.1 (robustez a ruido de sensor)", None),
+            ("vision-1.0.1", "production", "2026-10-15T10:00:00", "2026-10-16T10:00:00", {"accuracy": 0.95, "angle_mae_deg": 7.1}, "Producción en P1-L2 y P2-L1", None),
             ("vision-1.1.0", "canary", "2026-10-22T16:00:00", _iso(deploy), {"accuracy": 0.951, "angle_mae_deg": 6.8},
-             "Canary en P1-L1 desde 02:40. Entrenado con imágenes de exposición nominal (8 ms)."),
-            ("vision-1.2.0-rc1", "staging", "2026-10-23T12:00:00", None, {"accuracy": 0.956, "angle_mae_deg": 6.5}, "Candidato: pasa gates"),
-            ("vision-1.2.0-rc0", "staging", "2026-10-22T12:00:00", None, {"accuracy": 0.88, "angle_mae_deg": 11.0}, "Candidato: NO pasa gates"),
+             "Canary en P1-L1 desde 02:40. Entrenado con imágenes de exposición nominal (8 ms).", "P1"),
+            ("vision-1.2.0-rc1", "staging", "2026-10-23T12:00:00", None, {"accuracy": 0.956, "angle_mae_deg": 6.5}, "Candidato: pasa gates", "P1"),
+            ("vision-1.2.0-rc0", "staging", "2026-10-22T12:00:00", None, {"accuracy": 0.88, "angle_mae_deg": 11.0}, "Candidato: NO pasa gates", "P1"),
+            ("vision-1.0.2-p2rc", "staging", "2026-10-23T09:00:00", None, {"accuracy": 0.955, "angle_mae_deg": 6.9}, "Candidato privado de P2", "P2"),
         ]
-        con.executemany("INSERT INTO model_registry VALUES(?,?,?,?,?,?)",
-                        [(v, s, c, d, json.dumps(m), nt) for v, s, c, d, m, nt in reg])
+        con.executemany("INSERT INTO model_registry VALUES(?,?,?,?,?,?,?)",
+                        [(v, s, c, d, json.dumps(m), nt, pl) for v, s, c, d, m, nt, pl in reg])
         con.executemany("INSERT INTO model_deployments VALUES(?,?,?,?,?)", [
-            ("P1-L1", "vision-1.0.0", "2026-10-01T10:00:00", "production", "u_ml"),
-            ("P1-L2", "vision-1.0.0", "2026-10-01T10:00:00", "production", "u_ml"),
-            ("P2-L1", "vision-1.0.0", "2026-10-01T10:00:00", "production", "u_ml"),
+            ("P1-L1", "vision-1.0.1", "2026-10-16T10:00:00", "production", "u_ml"),
+            ("P1-L2", "vision-1.0.1", "2026-10-16T10:00:00", "production", "u_ml"),
+            ("P2-L1", "vision-1.0.1", "2026-10-16T10:00:00", "production", "u_ml"),
             ("P1-L1", "vision-1.1.0", _iso(deploy), "canary", "u_ml"),
         ])
         con.commit()

@@ -48,8 +48,42 @@ def normalize(s: str) -> str:
     return "".join(c for c in s if not unicodedata.combining(c))
 
 
+def redact_deep(obj):
+    """Redacta emails/teléfonos en TODOS los strings de una estructura (todo lo que llega al LLM)."""
+    if isinstance(obj, str):
+        return redact(obj)
+    if isinstance(obj, list):
+        return [redact_deep(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: redact_deep(v) for k, v in obj.items()}
+    return obj
+
+
+def _shrink(obj, max_str: int, max_list: int):
+    if isinstance(obj, str):
+        return obj if len(obj) <= max_str else obj[:max_str] + "...[recortado]"
+    if isinstance(obj, list):
+        out = [_shrink(x, max_str, max_list) for x in obj[:max_list]]
+        if len(obj) > max_list:
+            out.append(f"...[{len(obj) - max_list} elementos omitidos]")
+        return out
+    if isinstance(obj, dict):
+        return {k: _shrink(v, max_str, max_list) for k, v in obj.items()}
+    return obj
+
+
 def truncate_json(obj, max_chars: int) -> str:
+    """Serializa a JSON SIEMPRE válido dentro del límite: recorta strings y listas progresivamente."""
     s = json.dumps(obj, ensure_ascii=False, default=str)
     if len(s) <= max_chars:
         return s
-    return s[: max_chars - 60] + f'... [truncado: {len(s)} caracteres en total]"'
+    for max_str, max_list in [(600, 20), (300, 12), (160, 8), (80, 5), (40, 3)]:
+        t = json.dumps(_shrink(obj, max_str, max_list), ensure_ascii=False, default=str)
+        if len(t) <= max_chars:
+            return t
+    n = max_chars // 2
+    while True:
+        t = json.dumps({"truncated": True, "original_chars": len(s), "preview": s[:n]}, ensure_ascii=False)
+        if len(t) <= max_chars or n == 0:
+            return t
+        n //= 2

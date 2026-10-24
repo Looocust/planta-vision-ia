@@ -15,7 +15,7 @@ from langgraph.types import Command
 
 from services.agent import approvals as approvals_mod
 from services.agent.audit import audit
-from services.agent.config import checkpoint_db_path, llm_model, policy_cfg, sim_now, uploads_dir
+from services.agent.config import checkpoint_db_path, llm_model, policy_cfg, real_now, sim_now, uploads_dir
 from services.agent.graph import Deps, make_graph, new_turn_input
 from services.agent.llm import estimate_cost
 from services.agent.plant.db import execute, init_db, rows
@@ -74,7 +74,7 @@ class AgentService:
         d.mkdir(parents=True, exist_ok=True)
         path = d / f"{image_id}.{ 'png' if fmt == 'PNG' else 'jpg'}"
         path.write_bytes(data)
-        now = sim_now()
+        now = real_now()  # reloj de seguridad: la retención se mide en tiempo real
         execute(self.con, "INSERT INTO uploads VALUES(?,?,?,?,?,?,?,?,?)",
                 (image_id, plant_id, line_id, user_id, str(path), hashlib.sha256(data).hexdigest(), len(data),
                  now.isoformat(), (now + timedelta(days=pol["retention_days"])).isoformat()))
@@ -104,7 +104,8 @@ class AgentService:
             prev = (self.graph.get_state(cfg).values or {}).get("image_ids") or []
             # solo imágenes de esta planta/línea (validadas contra el registro de cargas)
             valid = [i for i in (image_ids or []) if rows(self.con, "SELECT 1 FROM uploads WHERE image_id=? AND "
-                                                          "plant_id=? AND line_id=?", (i, plant_id, line_id))]
+                                                          "plant_id=? AND line_id=? AND expires_at>?",
+                                                          (i, plant_id, line_id, real_now().isoformat()))]
             imgs = list(dict.fromkeys(prev + valid))[-20:]
             text = message[:4000]
             if image_ids:
@@ -132,15 +133,31 @@ class AgentService:
                     f"solicitante. No se ha ejecutado.")
             reply = (reply or "") + note
         tin, tout = out.get("tokens_in", 0), out.get("tokens_out", 0)
+        by_model: dict[str, dict] = {}
+        for u in out.get("llm_usage") or []:  # costo por modelo efectivamente usado (incluye respaldos)
+            b = by_model.setdefault(u["model"], {"input_tokens": 0, "output_tokens": 0, "calls": 0})
+            b["input_tokens"] += u["input_tokens"]
+            b["output_tokens"] += u["output_tokens"]
+            b["calls"] += 1
+        for name, b in by_model.items():
+            b["cost_usd"] = estimate_cost(name, b["input_tokens"], b["output_tokens"])
+        labels = out.get("pending_labels") or []
+        if labels:
+            reply = (reply or "") + "".join(
+                f"\n\n[Sistema] Etiqueta propuesta para {p_['case_id']}: {p_['proposed_label']} @ "
+                f"{p_['proposed_angle_deg']}°. NO está en el dataset hasta que la confirmes en 'Etiquetas por confirmar'."
+                for p_ in labels)
         return {"reply": reply or "(sin respuesta)", "tool_calls": out.get("tool_log", []),
-                "pending_approval": pending, "stop_reason": out.get("stop_reason"),
+                "pending_approval": pending, "pending_label_confirmations": labels,
+                "stop_reason": out.get("stop_reason"),
                 "usage": {"input_tokens": tin, "output_tokens": tout, "llm_calls": out.get("steps", 0),
-                          "models_used": sorted(set(out.get("models_used") or [])),
-                          "cost_usd": estimate_cost((out.get("models_used") or [self.model_name])[-1], tin, tout)}}
+                          "models_used": sorted(by_model), "by_model": by_model,
+                          "cost_usd": round(sum(b["cost_usd"] for b in by_model.values()), 6)}}
 
     # ------------------------------------------------------------------ approvals
     def decide(self, approval_id: str, approver_id: str, role: str, decision: str, comment: str | None) -> dict:
-        res = approvals_mod.decide(self.con, self.vision, approval_id, approver_id, role, decision, comment, sim_now())
+        res = approvals_mod.decide(self.con, self.vision, approval_id, approver_id, role, decision, comment, sim_now(),
+                                   real_now())
         if res.get("idempotent"):
             return res
         ap = rows(self.con, "SELECT * FROM approvals WHERE approval_id=?", (approval_id,))[0]
@@ -171,3 +188,19 @@ class AgentService:
     def log_auth_failure(self, user_id, role, plant_id, line_id, detail):
         audit(self.con, sim_now(), session_id=None, request_id=None, user_id=user_id, role=role, plant_id=plant_id,
               line_id=line_id, action="auth_denied", tool=None, args={}, outcome="denied", detail=detail)
+
+    # ------------------------------------------------------------------ etiquetas humanas
+    def pending_labels(self, plant_id: str) -> list[dict]:
+        return rows(self.con, "SELECT case_id, line_id, image_ref, image_id, predicted_label, predicted_confidence, "
+                              "proposed_label, proposed_angle, proposed_by, proposed_at FROM review_queue WHERE "
+                              "plant_id=? AND status='label_proposed' ORDER BY proposed_at", (plant_id,))
+
+    def confirm_label(self, user_id: str, role: str, plants: tuple[str, ...], case_id: str, decision: str,
+                      label: str | None, angle_deg: float | None) -> dict:
+        from services.agent import review
+        return review.confirm(self.con, user_id, role, plants, case_id, decision, label, angle_deg, real_now())
+
+    # ------------------------------------------------------------------ retención
+    def purge_expired(self) -> dict:
+        from services.agent import review
+        return review.purge_expired(self.con, real_now())

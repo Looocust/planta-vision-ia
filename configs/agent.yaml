@@ -30,6 +30,10 @@ vision:
   backoff_s: 0.4
   circuit_failure_threshold: 3
   circuit_reset_s: 30
+  # La instancia de visión de la demo es UNA sola y compartida: se vincula explícitamente a P1. Operaciones que
+  # cambian el servicio (umbrales, staging de SKU, promoción) se rechazan para plantas no vinculadas.
+  # En producción: una instancia de visión en el edge por planta/línea (stamp) y este mapa apunta a cada una.
+  bound_plants: [P1]
 plant:
   db_path_env: PLANT_DB_PATH
   default_db_path: data/runtime/plant.db

@@ -45,7 +45,9 @@ POST /v1/approvals/{id} ─► approvals.decide()  (determinista: RBAC, aprobado
 
 | Decisión | Dónde | Evidencia |
 |---|---|---|
-| Autenticación (usuario ↔ rol ↔ planta), simulando un IdP | `rbac.authenticate`, `configs/roles.yaml` | `test_authentication_role_and_plant` |
+| Identidad verificada: token bearer firmado con HMAC (`AUTH_SECRET`, emitido por `POST /v1/auth/demo-login` solo con `DEMO_LOGIN=true`; en producción, OIDC de Entra ID). Usuario, rol y plantas salen del token, nunca del cuerpo | `auth.py`, `app.py`, `rbac.authenticate` | `test_http_api_end_to_end`, `test_authentication_role_and_plant` |
+| Etiquetas humanas: el LLM solo propone; la etiqueta llega al dataset tras la confirmación del humano verificado (`POST /v1/review-labels/{case_id}`), en una transacción | `review.py` | `test_compromised_llm_cannot_write_dataset`, `test_http_label_confirmation_by_verified_human` |
+| Vínculo planta ↔ instancia de visión: umbrales, staging y promoción solo en plantas vinculadas (`vision.bound_plants`). Registro y candidatos con alcance de planta | `tools._require_bound_vision`, `_promotion_gates` | `test_plant_isolation_of_model_registry_and_vision_ops` |
 | Autorización por tool (RBAC). Además, solo se exponen al LLM las tools del rol | `guard`, `rbac.tool_allowed` | `test_rbac_operator_cannot_request_risky_or_tickets`, UC2-03, UC6-04 |
 | Quién puede solicitar o aprobar cada operación riesgosa. Aprobador ≠ solicitante, misma planta, rol registrado | `approvals._check_approver` | `test_risky_op_requires_distinct_authorized_approver`, UC6-03 |
 | Límites de umbrales (rango absoluto y cambio relativo máximo de 30 %) | `tools.validate_risky`, `configs/policy.yaml` | `test_threshold_bounds_and_relative_change`, UC6-05 |
@@ -65,9 +67,9 @@ POST /v1/approvals/{id} ─► approvals.decide()  (determinista: RBAC, aprobado
 | `max_tool_calls_per_turn` | 12 | corta y cierra las llamadas pendientes |
 | `max_identical_calls` | 1 repetición | La 1.ª repetición de tool+args se bloquea ("usa el resultado anterior"). La 2.ª corta el turno con `loop_detected` |
 | `max_blocked_calls_per_turn` | 4 | `too_many_blocked` (p. ej. un LLM insistiendo en una tool prohibida) |
-| `tool_timeout_s` | 20 s por tool (visión: timeout HTTP de 5 s, 2 reintentos) | resultado `tool_timeout`, sin propagar excepciones |
+| `tool_timeout_s` | 20 s por tool (visión: timeout HTTP de 5 s, 2 reintentos) | `tool_timeout`. El turno **no espera** al worker (`shutdown(wait=False, cancel_futures=True)`) |
 | `turn_timeout_s` | 120 s | `turn_timeout` |
-| `token_budget_per_turn` | 120 000 | `token_budget` |
+| `token_budget_per_turn` | 120 000 | `token_budget`. Se verifica antes de cada llamada LLM **y en el guard antes de ejecutar cualquier tool** (también el tiempo del turno) |
 | LLM caído / 429 | reintentos con backoff exponencial que respetan `retry in Xs` | Si se agotan: `llm_error` con un mensaje honesto y ninguna acción adicional |
 
 Al cortar un turno, el guard siempre responde a todos los `tool_calls` pendientes con un `ToolMessage` (`not_executed`), para que el historial siga siendo válido para el proveedor.
@@ -82,7 +84,11 @@ Al cortar un turno, el guard siempre responde a todos los `tool_calls` pendiente
 | Memoria persistente de usuario | preferencias con lista cerrada de claves (formato, nivel de detalle, línea habitual…) | tabla `user_memory` | TTL 30 días (`policy.yaml`), máx. 20 por usuario | `user_id` |
 | Conocimiento recuperado | secciones de SOP (TF-IDF bigramas, normalización de acentos) con `trust` official/untrusted | `docs/sop/*.md`, índice en memoria | versión del repo | `doc_id`, `section_id` |
 | Datos operativos | métricas, cámara, robot, tickets, cola, registro de modelos, aprobaciones, auditoría | `data/runtime/plant.db` | auditoría append-only | `approval_id`, `ticket_id`, `case_id`, `request_id` (visión), `image_id` |
-| Imágenes subidas | archivo + sha256 + dueño | `data/runtime/uploads/<plant>/<line>/img_*.png` + tabla `uploads` | 30 días (`expires_at`). Nunca se envían al LLM | `image_id` |
+| Imágenes subidas | archivo + sha256 + dueño | `data/runtime/uploads/<plant>/<line>/img_*.png` + tabla `uploads` | 30 días en **reloj real** (`expires_at`). Las lecturas lo respetan. `review.purge_expired()` borra archivo y fila (al arrancar y en `POST /v1/admin/purge`). Nunca se envían al LLM | `image_id` |
+
+**Dos relojes:**
+- **Simulado de planta** (`PLANT_SIM_NOW`), para datos y turnos reproducibles.
+- **Real de seguridad** (`config.real_now`), para la expiración de cargas, aprobaciones, tokens y memoria.
 
 **Control de crecimiento del contexto** (`graph.build_context`): el turno actual siempre va completo. Los turnos anteriores entran enteros mientras quepan en `max_history_tokens` (6 000), con las salidas de tools antiguas comprimidas a 300 caracteres. Nunca se separa un par `tool_call`/`ToolMessage`. Lo que no cabe queda representado por los resúmenes deterministas del system prompt. Las salidas de tools son JSON estructurado, truncado a 3 500 caracteres.
 
@@ -122,10 +128,14 @@ Ante fallas, `inspect_images` devuelve `degraded: true`, `robot_command: HOLD` y
 - Los resúmenes de turnos antiguos son deterministas (truncados) y no resúmenes LLM: más baratos, pero menos informativos.
 - Los umbrales del servicio de visión son globales en el contrato. El agente los registra por línea en la DB, pero el servicio los aplica a todo.
 
+- Identidad de demo: HMAC con secreto compartido y sin revocación individual. Decisiones serializadas con un lock en proceso, no entre procesos.
+- La redacción de PII es por regex.
+- El endpoint de staging no mide la regresión sobre las clases existentes; se usa la confusión con SKU conocidos como proxy.
+
 ## 9. Cómo ejecutar
 
 ```bash
-# variables (.env, nunca en código): GOOGLE_API_KEY, LLM_PROVIDER=google_genai, LLM_MODEL=gemini-3.1-flash-lite (por defecto),
+# variables (.env, nunca en código): GOOGLE_API_KEY, AUTH_SECRET (firma de tokens), DEMO_LOGIN=true (solo demo), LLM_PROVIDER=google_genai, LLM_MODEL=gemini-3.1-flash-lite (por defecto),
 # opcionales: LLM_FALLBACK_MODELS=gemini-3-flash-preview, LLM_MIN_INTERVAL_S, LLM_THINKING_LEVEL=low,
 # VISION_API_URL=http://localhost:8001, VISION_ADMIN_TOKEN (o ADMIN_TOKEN), PLANT_DB_PATH, PLANT_SIM_NOW
 uv run python -m services.agent.plant.db                     # (re)siembra la DB de planta
@@ -139,8 +149,8 @@ uv run python eval/agent/export_tool_schemas.py              # JSON Schemas → 
 ```
 
 Flujo de aprobación en la UI:
-1. El solicitante (p. ej. `u_sup_p1`) pide "pausa la línea" y recibe un `APR-…` pendiente.
-2. Se cambia el selector de usuario a un aprobador (p. ej. `u_sup2_p1`).
+1. El solicitante elige su usuario, pulsa "Entrar (demo)" para obtener el token y pide "pausa la línea" y recibe un `APR-…` pendiente.
+2. Se cambia el selector a un aprobador (p. ej. `u_sup2_p1`) y se pulsa "Entrar (demo)" otra vez.
 3. En el panel "Aprobaciones pendientes" se pulsa Aprobar o Rechazar.
 
 Si el aprobador es el mismo solicitante o tiene un rol sin permiso, el intento se rechaza con 403 y queda auditado.

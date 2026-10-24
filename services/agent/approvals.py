@@ -27,7 +27,9 @@ class ApprovalError(Exception):
 
 
 def decide(con: sqlite3.Connection, vision: VisionClient, approval_id: str, approver_id: str, role: str,
-           decision: str, comment: str | None, now: datetime) -> dict:
+           decision: str, comment: str | None, now: datetime, sec_now: datetime | None = None) -> dict:
+    """`now` = reloj simulado de planta (datos); `sec_now` = reloj real de seguridad (expiración, decisión)."""
+    sec_now = sec_now or datetime.now().replace(microsecond=0)
     with _lock:  # serializa decisiones concurrentes sobre la misma aprobación
         ap = rows(con, "SELECT * FROM approvals WHERE approval_id=?", (approval_id,))
         if not ap:
@@ -44,7 +46,7 @@ def decide(con: sqlite3.Connection, vision: VisionClient, approval_id: str, appr
         if ap["status"] != "pending":  # idempotencia: no se re-ejecuta
             return {"approval_id": approval_id, "status": ap["status"], "idempotent": True,
                     "result": json.loads(ap["result"] or "null")}
-        if ap["expires_at"] and ap["expires_at"] < _iso(now):
+        if ap["expires_at"] and ap["expires_at"] < _iso(sec_now):
             execute(con, "UPDATE approvals SET status='expired', idempotency_key=idempotency_key||':'||approval_id "
                          "WHERE approval_id=?", (approval_id,))
             audit(con, now, action="approval_expired", tool=ap["operation"], args={}, outcome="expired", **base)
@@ -52,7 +54,7 @@ def decide(con: sqlite3.Connection, vision: VisionClient, approval_id: str, appr
         if decision == "reject":
             execute(con, "UPDATE approvals SET status='rejected', approver_id=?, approver_role=?, decided_at=?, "
                          "comment=?, idempotency_key=idempotency_key||':'||approval_id WHERE approval_id=?",
-                    (approver_id, role, _iso(now), comment, approval_id))
+                    (approver_id, role, _iso(sec_now), comment, approval_id))
             audit(con, now, action="approval_rejected", tool=ap["operation"], args=json.loads(ap["params"]),
                   outcome="rejected", detail=comment, **base)
             return {"approval_id": approval_id, "status": "rejected", "operation": ap["operation"],
@@ -61,7 +63,7 @@ def decide(con: sqlite3.Connection, vision: VisionClient, approval_id: str, appr
         params = json.loads(ap["params"])
         ctx = ToolContext(session_id=ap["session_id"], plant_id=ap["plant_id"], line_id=ap["line_id"],
                           user_id=ap["requested_by"], role=ap["requester_role"], request_id=approval_id, con=con,
-                          vision=vision, now=now)
+                          vision=vision, now=now, real_now=sec_now)
         try:
             validate_risky(ctx, ap["operation"], ap["line_id"], params)
             result = _execute(ctx, ap["operation"], ap["line_id"], params, approval_id)
@@ -72,7 +74,7 @@ def decide(con: sqlite3.Connection, vision: VisionClient, approval_id: str, appr
             result, status = {"error": "vision_unavailable", "message": f"Servicio de visión no disponible ({e.code})"}, "failed"
         execute(con, "UPDATE approvals SET status=?, approver_id=?, approver_role=?, decided_at=?, comment=?, result=?, "
                      "idempotency_key=idempotency_key||':'||approval_id WHERE approval_id=?",
-                (status, approver_id, role, _iso(now), comment, json.dumps(result), approval_id))
+                (status, approver_id, role, _iso(sec_now), comment, json.dumps(result), approval_id))
         audit(con, now, action=f"approval_{status}", tool=ap["operation"], args=params, outcome=status,
               detail=json.dumps(result)[:500], **base)
         return {"approval_id": approval_id, "status": status, "operation": ap["operation"], "params": params,
@@ -105,9 +107,10 @@ def _execute(ctx: ToolContext, op: str, line: str, params: dict, approval_id: st
         if "error" in r:
             raise ToolError("vision_error", f"El servicio de visión rechazó el cambio: {r['error']}")
         sets = ", ".join(f"{k}=?" for k in params)
-        execute(ctx.con, f"UPDATE lines SET {sets}, updated_at=? WHERE line_id=?",
-                (*params.values(), _iso(ctx.now), line))
-        return {"line_id": line, "applied": params, "service_thresholds": r}
+        # la instancia de visión es por planta: el umbral aplica a todas sus líneas
+        execute(ctx.con, f"UPDATE lines SET {sets}, updated_at=? WHERE plant_id=?",
+                (*params.values(), _iso(ctx.now), ctx.plant_id))
+        return {"line_id": line, "plant_id": ctx.plant_id, "applied": params, "service_thresholds": r}
     if op == "manual_angle":
         cmd = _uid("CMD")
         execute(ctx.con, "INSERT OR IGNORE INTO robot_commands VALUES(?,?,?,?,?,?)",
@@ -118,10 +121,16 @@ def _execute(ctx: ToolContext, op: str, line: str, params: dict, approval_id: st
         r = ctx.vision.promote(v)
         if "error" in r:
             raise ToolError("vision_error", f"El servicio de visión rechazó la promoción: {r['error']} {r.get('detail')}")
-        execute(ctx.con, "UPDATE model_registry SET status='archived' WHERE status='production'")
-        execute(ctx.con, "UPDATE model_registry SET status='production', deployed_at=? WHERE version=?",
-                (_iso(ctx.now), v))
-        execute(ctx.con, "INSERT INTO model_deployments VALUES(?,?,?,?,?)", (line, v, _iso(ctx.now), "production",
-                                                                            ctx.user_id))
-        return {"promoted": v, "service": r}
+        # alcance de planta: solo se archivan versiones de ESTA planta; las versiones base compartidas no se tocan
+        execute(ctx.con, "UPDATE model_registry SET status='archived' WHERE status='production' AND plant_id=?",
+                (ctx.plant_id,))
+        execute(ctx.con, "UPDATE model_registry SET status='production', deployed_at=? WHERE version=? AND plant_id=?",
+                (_iso(ctx.now), v, ctx.plant_id))
+        plant_lines = [r["line_id"] for r in rows(ctx.con, "SELECT line_id FROM lines WHERE plant_id=?",
+                                                    (ctx.plant_id,))]
+        for ln in plant_lines:  # la instancia de visión vinculada sirve a todas las líneas de la planta
+            execute(ctx.con, "UPDATE lines SET model_version=?, updated_at=? WHERE line_id=?", (v, _iso(ctx.now), ln))
+            execute(ctx.con, "INSERT INTO model_deployments VALUES(?,?,?,?,?)", (ln, v, _iso(ctx.now), "production",
+                                                                                ctx.user_id))
+        return {"promoted": v, "lines_updated": plant_lines, "service": r}
     raise ToolError("unknown_operation", op)

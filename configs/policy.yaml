@@ -23,13 +23,17 @@ risky_operations:
     description: Promover una versión candidata (staging) a producción
     min_accuracy: 0.90
     max_accuracy_drop_vs_prod: 0.01
+    max_angle_mae_increase_deg: 1.0   # modelo completo: MAE angular no empeora > 1° vs el modelo de la línea
+    max_angle_mae_deg: 15.0           # alta de SKU: MAE angular LOO máximo
+    min_angle_within_10: 0.70         # alta de SKU: fracción LOO con error <= 10°
 approvals:
   ttl_minutes: 60
   approver_must_differ_from_requester: true
   same_plant_required: true
 sku_onboarding:
   min_views: 12                    # alineado con el servicio de visión (too_few_views < 12)
-  min_angle_coverage_deg: 270      # cobertura angular mínima (max-min de ángulos únicos)
+  min_angle_coverage_deg: 270      # cobertura angular CIRCULAR mínima (360 - mayor hueco)
+  max_angle_gap_deg: 60            # mayor hueco permitido entre vistas consecutivas
   max_views: 72
 uploads:
   max_bytes: 5242880

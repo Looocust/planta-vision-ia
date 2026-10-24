@@ -41,5 +41,5 @@
   "title": "SubmitReviewLabelIn",
   "type": "object",
   "x-kind": "write",
-  "x-side-effects": "marca caso + inserta en retraining_dataset; idempotente por case_id"
+  "x-side-effects": "marca el caso como label_proposed; el dataset solo se escribe tras confirmación humana (review.py)"
 }

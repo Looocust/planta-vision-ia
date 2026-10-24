@@ -73,6 +73,15 @@ def sim_now() -> datetime:
     return datetime.fromisoformat(os.environ.get("PLANT_SIM_NOW") or agent_cfg()["plant"]["sim_now"])
 
 
+def real_now() -> datetime:
+    """Reloj de SEGURIDAD (tiempo real): expiración de cargas, aprobaciones, tokens y memoria."""
+    return datetime.now().replace(microsecond=0)
+
+
+def vision_bound_plants() -> list[str]:
+    return list(agent_cfg()["vision"].get("bound_plants") or [])
+
+
 def vision_base_url() -> str:
     c = agent_cfg()["vision"]
     return os.environ.get(c["base_url_env"]) or c["default_base_url"]

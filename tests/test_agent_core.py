@@ -54,15 +54,48 @@ def test_low_confidence_goes_to_review_queue_and_label_to_dataset(tmp_path):
     assert rows(svc.con, "SELECT status FROM review_queue WHERE case_id=?", (case,))[0]["status"] == "pending"
     model.script += [ai_tools(tool_call("submit_review_label", {"case_id": case, "label": "obj29", "angle_deg": 185})),
                      AIMessage(content="etiquetado")]
-    chat(svc, "confirmo obj29 a 185")
+    r = chat(svc, "confirmo obj29 a 185")
+    # el LLM solo PROPONE: nada llega al dataset sin la confirmación del humano verificado
+    assert r["pending_label_confirmations"][0]["case_id"] == case
+    assert rows(svc.con, "SELECT * FROM retraining_dataset WHERE case_id=?", (case,)) == []
+    from services.agent.review import ReviewError
+    with pytest.raises(ReviewError) as e:  # el humano confirma un valor distinto al mostrado
+        svc.confirm_label("u_sup_p1", "supervisor", ("P1",), case, "confirm", "obj29", 190)
+    assert e.value.code == "mismatch"
+    with pytest.raises(ReviewError) as e:  # rol sin permiso de etiquetado
+        svc.confirm_label("u_mnt_p1", "maintenance", ("P1",), case, "confirm", "obj29", 185)
+    assert e.value.code == "forbidden_role"
+    res = svc.confirm_label("u_sup_p1", "supervisor", ("P1",), case, "confirm", "obj29", 185)
     ds = rows(svc.con, "SELECT * FROM retraining_dataset WHERE case_id=?", (case,))
-    assert len(ds) == 1 and ds[0]["label"] == "obj29"
+    assert res["status"] == "labeled" and len(ds) == 1 and ds[0]["label"] == "obj29"
+    assert ds[0]["source"] == "human_review_confirmed" and ds[0]["added_by"] == "u_sup_p1"
     # idempotencia: misma etiqueta otra vez no duplica
     model.script += [ai_tools(tool_call("submit_review_label", {"case_id": case, "label": "obj29", "angle_deg": 185.0})),
                      AIMessage(content="ya estaba")]
     chat(svc, "otra vez", sid="s2")
     assert last_tool_payload(model)["status"] == "already_labeled"
+    assert svc.confirm_label("u_sup_p1", "supervisor", ("P1",), case, "confirm", "obj29", 185)["idempotent"]
     assert len(rows(svc.con, "SELECT * FROM retraining_dataset WHERE case_id=?", (case,))) == 1
+
+
+def test_compromised_llm_cannot_write_dataset(tmp_path):
+    """Un LLM comprometido que llame submit_review_label sin que nadie lo pida no escribe en el dataset."""
+    svc, model, _ = make_service(tmp_path, [
+        ai_tools(tool_call("list_tickets", {}), tool_call("submit_review_label",
+                                                          {"case_id": "RC-0001", "label": "obj2", "angle_deg": 0})),
+        AIMessage(content="ok")])
+    chat(svc, "Lista los tickets abiertos")
+    assert rows(svc.con, "SELECT COUNT(*) n FROM retraining_dataset")[0]["n"] == 0
+    assert rows(svc.con, "SELECT status FROM review_queue WHERE case_id='RC-0001'")[0]["status"] == "label_proposed"
+
+
+def test_review_queue_unique_per_image(tmp_path):
+    import sqlite3 as _sq
+    svc, model, stub = make_service(tmp_path, [])
+    svc.con.execute("INSERT INTO review_queue(case_id, plant_id, image_id, status) VALUES('RC-X1','P1','img_aaaaaaaaaaaa','pending')")
+    with pytest.raises(_sq.IntegrityError):
+        svc.con.execute("INSERT INTO review_queue(case_id, plant_id, image_id, status) VALUES('RC-X2','P1','img_aaaaaaaaaaaa','pending')")
+    svc.con.rollback()
 
 
 def test_out_of_domain_and_dark_images_rejected(tmp_path):
@@ -153,12 +186,26 @@ def test_tool_timeout(tmp_path, monkeypatch):
     from services.agent import tools as T
     base = g.limits()
     monkeypatch.setattr(g, "limits", lambda: {**base, "tool_timeout_s": 0.2})
-    slow = T.ToolSpec("get_model_versions", "x", T.GetModelVersionsIn, "read", lambda c, a: time.sleep(1) or {})
+    slow = T.ToolSpec("get_model_versions", "x", T.GetModelVersionsIn, "read", lambda c, a: time.sleep(1.5) or {})
     monkeypatch.setitem(T.TOOLS, "get_model_versions", slow)
     monkeypatch.setitem(g.TOOLS, "get_model_versions", slow)
     svc, model, _ = make_service(tmp_path, [ai_tools(tool_call("get_model_versions", {})), AIMessage(content="lento")])
+    t0 = time.time()
     r = chat(svc, "versiones")
     assert r["tool_calls"][0]["status"] == "timeout"
+    assert time.time() - t0 < 1.0  # el deadline es efectivo: no espera a que el worker termine
+
+
+def test_token_budget_checked_before_side_effects(tmp_path, monkeypatch):
+    from services.agent import graph as g
+    base = g.limits()
+    monkeypatch.setattr(g, "limits", lambda: {**base, "token_budget_per_turn": 100})  # 1 llamada fake = 120 tokens
+    svc, model, _ = make_service(tmp_path, [ai_tools(tool_call("create_ticket", {
+        "title": "Ticket de prueba", "description": "descripción suficiente", "severity": "low", "category": "other"}))])
+    r = chat(svc, "crea ticket", who=("P1", "P1-L1", "u_mnt_p1", "maintenance"))
+    assert r["stop_reason"] == "token_budget"
+    assert rows(svc.con, "SELECT COUNT(*) n FROM tickets WHERE created_by='u_mnt_p1' AND ticket_id LIKE 'TCK-%' "
+                         "AND ticket_id NOT IN ('TCK-0990','TCK-1003')")[0]["n"] == 0
 
 
 def test_llm_error_is_reported_without_actions(tmp_path):
@@ -293,10 +340,34 @@ def test_promotion_gates_and_flow(tmp_path):
     r = _request(svc, model, {"operation": "promote_model", "candidate_version": "vision-1.2.0-rc1",
                               "justification": "mejor accuracy"}, ml, sid="s2")
     aid = r["pending_approval"]["approval_id"]
-    assert stub.active == "vision-1.0.0"
+    assert stub.active == "vision-1.0.1"
     res = svc.decide(aid, "u_qa_p1", "quality", "approve", "validado")
     assert res["status"] == "executed" and stub.active == "vision-1.2.0-rc1"
     assert rows(svc.con, "SELECT status FROM model_registry WHERE version='vision-1.2.0-rc1'")[0]["status"] == "production"
+    assert {r["model_version"] for r in rows(svc.con, "SELECT model_version FROM lines WHERE plant_id='P1'")} == \
+        {"vision-1.2.0-rc1"}
+    assert rows(svc.con, "SELECT model_version FROM lines WHERE line_id='P2-L1'")[0]["model_version"] == "vision-1.0.1"
+    assert rows(svc.con, "SELECT status FROM model_registry WHERE version='vision-1.0.1'")[0]["status"] == "production"
+
+
+def test_plant_isolation_of_model_registry_and_vision_ops(tmp_path):
+    svc, model, stub = make_service(tmp_path, [])
+    model.script += [ai_tools(tool_call("get_model_versions", {})), AIMessage(content="v")]
+    chat(svc, "versiones")
+    vers = {r["version"] for r in last_tool_payload(model)["registry"]}
+    assert "vision-1.0.2-p2rc" not in vers and "vision-1.2.0-rc1" in vers
+    # candidato de P2 no se puede promover desde P1
+    _request(svc, model, {"operation": "promote_model", "candidate_version": "vision-1.0.2-p2rc",
+                          "justification": "promover candidato ajeno"}, ("P1", "P1-L1", "u_ml", "ml_engineer"), sid="s2")
+    assert last_tool_payload(model)["error"] == "gates_failed"
+    # P2 no está vinculada a la instancia de visión de la demo: no puede cambiar umbrales ni promover
+    _request(svc, model, {"operation": "promote_model", "candidate_version": "vision-1.0.2-p2rc",
+                          "justification": "promover en P2"}, ("P2", "P2-L1", "u_ml", "ml_engineer"), sid="s3")
+    assert last_tool_payload(model)["error"] == "vision_not_bound"
+    _request(svc, model, {"operation": "set_threshold", "min_class_confidence": 0.85,
+                          "justification": "más estricto en P2"}, ("P2", "P2-L1", "u_ml", "ml_engineer"), sid="s4")
+    assert last_tool_payload(model)["error"] == "vision_not_bound"
+    assert "/v1/admin/thresholds" not in stub.calls and "/v1/admin/promote" not in stub.calls
 
 
 def test_duplicate_request_is_idempotent(tmp_path):
@@ -395,6 +466,13 @@ def test_sku_onboarding_validation_and_staging(tmp_path):
     chat(svc, "alta sku", who=ml)
     out = last_tool_payload(model)
     assert out["sufficient"] is False and out["staged"] is False and "/v1/skus/stage" not in stub.calls
+    # 12 copias de la misma imagen: vistas duplicadas por hash => no se envía a staging
+    dup = [svc.upload((COIL / "obj100__0.png").read_bytes(), "a.png", *ml)["image_id"] for _ in range(12)]
+    model.script += [ai_tools(tool_call("stage_new_sku", {"sku": "SKU-NEW-01", "image_ids": dup,
+                                                          "angles": list(range(0, 360, 30))})), AIMessage(content="dup")]
+    chat(svc, "alta duplicada", who=ml, sid="s1b")
+    out = last_tool_payload(model)
+    assert out["staged"] is False and any("duplicadas" in i for i in out["issues"])
     angles = list(range(0, 360, 30))
     ids = [svc.upload((COIL / f"obj100__{a}.png").read_bytes(), "a.png", *ml)["image_id"] for a in angles]
     model.script += [ai_tools(tool_call("stage_new_sku", {"sku": "SKU-NEW-01", "image_ids": ids, "angles": angles})),
@@ -403,7 +481,29 @@ def test_sku_onboarding_validation_and_staging(tmp_path):
     out = last_tool_payload(model)
     assert out["staged"] and out["promotion_gates"]["passes"]
     reg = rows(svc.con, "SELECT status FROM model_registry WHERE version=?", (out["candidate_version"],))
-    assert reg[0]["status"] == "staging" and stub.active == "vision-1.0.0"
+    assert reg[0]["status"] == "staging" and stub.active == "vision-1.0.1"
+    assert rows(svc.con, "SELECT plant_id FROM model_registry WHERE version=?", (out["candidate_version"],))[0]["plant_id"] == "P1"
+
+
+def test_circular_coverage_and_sku_angle_gates():
+    from services.agent.tools import circular_coverage
+    assert circular_coverage([350, 0, 10]) == (20, 340)  # max-min daría 350: incorrecto
+    cov, gap = circular_coverage(list(range(0, 360, 30)))
+    assert cov == 330 and gap == 30
+
+
+def test_sku_candidate_with_bad_angle_metrics_fails_gates(tmp_path):
+    from services.agent.tools import _promotion_gates
+    from services.agent.context import ToolContext
+    svc, _, _ = make_service(tmp_path, [])
+    svc.con.execute("INSERT INTO model_registry VALUES('cand-bad','staging','x',NULL,?, 'n','P1')",
+                    (json.dumps({"loo_class_accuracy": 1.0, "loo_angle_mae_deg": 90.0, "loo_angle_within_10": 0.1,
+                                 "service_sufficient": True, "service_issues": []}),))
+    svc.con.commit()
+    ctx = ToolContext("s", "P1", "P1-L1", "u_ml", "ml_engineer", "r", svc.con, svc.vision,
+                      __import__("services.agent.config", fromlist=["sim_now"]).sim_now())
+    g = _promotion_gates(ctx, "cand-bad")
+    assert not g["passes"] and any("MAE" in i for i in g["issues"])
 
 
 def test_context_builder_keeps_tool_pairs():
@@ -440,27 +540,97 @@ def test_upload_validation(tmp_path):
 def test_http_api_end_to_end(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
     from services.agent import app as app_mod
+    from services.agent.auth import issue_token
+    monkeypatch.setenv("AUTH_SECRET", "test-secret")
+    monkeypatch.setenv("DEMO_LOGIN", "true")
     svc, model, stub = make_service(tmp_path, [])
     monkeypatch.setattr(app_mod, "get_service", lambda: svc)
     c = TestClient(app_mod.app)
     assert c.get("/").status_code == 200
+    tok = c.post("/v1/auth/demo-login", json={"user_id": "u_sup_p1"}).json()["token"]
+    tok2 = c.post("/v1/auth/demo-login", json={"user_id": "u_sup2_p1"}).json()["token"]
+    H = lambda t: {"Authorization": f"Bearer {t}"}  # noqa: E731
     data = stub.register_file(COIL / "obj5__30.png")
-    img = c.post("/v1/uploads", files={"file": ("a.png", data, "image/png")},
-                 data={"plant_id": "P1", "line_id": "P1-L1", "user_id": "u_sup_p1", "role": "supervisor"}).json()
+    form = {"plant_id": "P1", "line_id": "P1-L1"}
+    assert c.post("/v1/uploads", files={"file": ("a.png", data, "image/png")}, data=form).status_code == 401
+    img = c.post("/v1/uploads", files={"file": ("a.png", data, "image/png")}, data=form, headers=H(tok)).json()
     model.script += [ai_tools(tool_call("request_risky_operation", {"operation": "pause_line",
                                                                     "justification": "fallos de agarre"})),
                      AIMessage(content="solicitado")]
-    r = c.post("/v1/chat", json={"session_id": "h1", "plant_id": "P1", "line_id": "P1-L1", "user_id": "u_sup_p1",
-                                 "role": "supervisor", "message": "pausa", "image_ids": [img["image_id"]]}).json()
+    body = {"session_id": "h1", "plant_id": "P1", "line_id": "P1-L1", "message": "pausa",
+            "image_ids": [img["image_id"]]}
+    assert c.post("/v1/chat", json=body).status_code == 401                              # sin token
+    assert c.post("/v1/chat", json=body, headers=H(tok[:-3] + "abc")).status_code == 401  # firma falsa
+    assert c.post("/v1/chat", json={**body, "user_id": "u_pm_p1", "role": "plant_manager"},
+                  headers=H(tok)).status_code == 403                                         # suplantación en cuerpo
+    r = c.post("/v1/chat", json=body, headers=H(tok)).json()
     aid = r["pending_approval"]["approval_id"]
-    assert set(r["usage"]) >= {"input_tokens", "output_tokens", "cost_usd"}
-    assert c.post(f"/v1/approvals/{aid}", json={"approver_id": "u_sup_p1", "role": "supervisor",
-                                               "decision": "approve"}).status_code == 403
-    ok = c.post(f"/v1/approvals/{aid}", json={"approver_id": "u_sup2_p1", "role": "supervisor",
-                                             "decision": "approve", "comment": "ok"}).json()
+    assert set(r["usage"]) >= {"input_tokens", "output_tokens", "cost_usd", "by_model"}
+    # el solicitante (token verificado) no puede aprobarse, aunque declare otro approver_id
+    assert c.post(f"/v1/approvals/{aid}", json={"decision": "approve"}, headers=H(tok)).status_code == 403
+    assert c.post(f"/v1/approvals/{aid}", json={"decision": "approve", "approver_id": "u_sup2_p1",
+                                               "role": "supervisor"}, headers=H(tok)).status_code == 403
+    assert c.post(f"/v1/approvals/{aid}", json={"approver_id": "u_sup2_p1", "role": "supervisor",
+                                               "decision": "approve"}).status_code == 401  # bypass sin token
+    assert rows(svc.con, "SELECT state FROM lines WHERE line_id='P1-L1'")[0]["state"] == "running"
+    ok = c.post(f"/v1/approvals/{aid}", json={"decision": "approve", "comment": "ok"}, headers=H(tok2)).json()
     assert ok["status"] == "executed" and "APROBADA" in ok["session_message"]
-    assert c.post("/v1/chat", json={"session_id": "h1", "plant_id": "P2", "line_id": "P2-L1", "user_id": "u_sup_p1",
-                                    "role": "supervisor", "message": "x"}).status_code == 403
+    assert c.post("/v1/chat", json={**body, "plant_id": "P2", "line_id": "P2-L1"}, headers=H(tok)).status_code == 403
+    # token de un usuario que ya no existe en el directorio / expirado
+    expired = issue_token("u_sup_p1", ttl_s=-10)["token"]
+    assert c.post("/v1/chat", json=body, headers=H(expired)).status_code == 401
+    monkeypatch.setenv("DEMO_LOGIN", "false")
+    assert c.post("/v1/auth/demo-login", json={"user_id": "u_pm_p1"}).status_code == 404
+
+
+def test_http_label_confirmation_by_verified_human(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from services.agent import app as app_mod
+    from services.agent.auth import issue_token
+    monkeypatch.setenv("AUTH_SECRET", "test-secret")
+    svc, model, _ = make_service(tmp_path, [ai_tools(tool_call("submit_review_label", {
+        "case_id": "RC-0001", "label": "obj29", "angle_deg": 185})), AIMessage(content="propuesta")])
+    monkeypatch.setattr(app_mod, "get_service", lambda: svc)
+    c = TestClient(app_mod.app)
+    H = lambda u: {"Authorization": f"Bearer {issue_token(u)['token']}"}  # noqa: E731
+    r = c.post("/v1/chat", json={"session_id": "l1", "plant_id": "P1", "line_id": "P1-L1",
+                                 "message": "RC-0001 es obj29 a 185"}, headers=H("u_sup_p1")).json()
+    assert "NO está en el dataset" in r["reply"]
+    pend = c.get("/v1/review-labels", params={"plant_id": "P1"}, headers=H("u_sup_p1")).json()["pending"]
+    assert pend[0]["case_id"] == "RC-0001"
+    assert c.post("/v1/review-labels/RC-0001", json={"decision": "confirm", "label": "obj29", "angle_deg": 185},
+                  headers=H("u_sup_p2")).status_code == 404  # otra planta
+    ok = c.post("/v1/review-labels/RC-0001", json={"decision": "confirm", "label": "obj29", "angle_deg": 185},
+                headers=H("u_qa_p1")).json()
+    assert ok["status"] == "labeled" and ok["confirmed_by"] == "u_qa_p1"
+
+
+def test_expiry_uses_security_clock_and_purge(tmp_path):
+    svc, model, stub = make_service(tmp_path, [])
+    img = upload_coil(svc, stub, "obj5__30", "act")
+    svc.con.execute("UPDATE uploads SET expires_at='2000-01-01T00:00:00' WHERE image_id=?", (img,))
+    svc.con.commit()
+    model.script += [ai_tools(tool_call("inspect_images", {"image_ids": [img]})), AIMessage(content="x")]
+    chat(svc, "inspecciona", images=[img])
+    assert last_tool_payload(model)["results"][0]["status"] == "not_found_in_scope"
+    res = svc.purge_expired()
+    assert res["uploads_deleted"] == 1 and not list((tmp_path / "uploads").rglob(f"{img}.*"))
+
+
+def test_redaction_and_valid_truncation(tmp_path):
+    from services.agent.security import truncate_json
+    svc, model, _ = make_service(tmp_path, [
+        ai_tools(tool_call("save_user_preference", {"key": "nivel_detalle", "value": "avisar a ana@planta.com"})),
+        AIMessage(content="ok"), ai_tools(tool_call("list_tickets", {})), AIMessage(content="t")])
+    svc.con.execute("UPDATE tickets SET title='Llamar a juan.perez@proveedor.com o +57 300 123 4567' "
+                    "WHERE ticket_id='TCK-1003'")
+    svc.con.commit()
+    chat(svc, "pref")
+    chat(svc, "tickets", sid="s2")
+    seen = json.dumps([str(m.content) for m in model.seen[-1]], ensure_ascii=False)
+    assert "juan.perez@proveedor.com" not in seen and "300 123 4567" not in seen and "ana@planta.com" not in seen
+    t = truncate_json({"a": ["x" * 900] * 40, "b": "y" * 5000}, 1200)
+    assert len(t) <= 1200 and json.loads(t)
 
 
 def test_vision_client_contract_parsing():
@@ -489,3 +659,13 @@ def test_daily_quota_switches_to_fallback_model(tmp_path):
     svc.deps.fallbacks = [("backup-model", backup)]
     r = chat(svc, "hola")
     assert r["reply"] == "respuesta del respaldo" and r["usage"]["models_used"] == ["backup-model"]
+    assert r["usage"]["by_model"]["backup-model"]["calls"] == 1
+
+
+def test_stage_new_sku_rejects_malformed_image_ids(tmp_path):
+    """Regresión de la evaluación (UC5-01): un id copiado con coma final debe fallar la validación del guard."""
+    ids = [f"img_{i:012x}" for i in range(11)] + ["img_8d0422a98e4b,"]
+    svc, model, _ = make_service(tmp_path, [ai_tools(tool_call("stage_new_sku", {
+        "sku": "SKU-X-01", "image_ids": ids, "angles": list(range(0, 360, 30))})), AIMessage(content="x")])
+    r = chat(svc, "alta", who=("P1", "P1-L1", "u_ml", "ml_engineer"))
+    assert r["tool_calls"][0]["reason"] == "invalid_args"

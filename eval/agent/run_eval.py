@@ -49,8 +49,8 @@ REPORT = ROOT / "docs" / "report" / "agent_eval.md"
 NOTES = EVAL / "report_notes.md"
 
 
-def load_cases() -> list[dict]:
-    return yaml.safe_load(CASES.read_text())["cases"]
+def load_cases(which: str = "main") -> list[dict]:
+    return yaml.safe_load((CASES if which == "main" else EVAL / "holdout.yaml").read_text())["cases"]
 
 
 def _fill(obj, imgs: list[str]):
@@ -130,6 +130,7 @@ def run_case(case: dict, real_model, vision_mode: str, model_name: str) -> dict:
     turns_out, t0 = [], time.time()
     tin = tout = calls = 0
     models_used: set[str] = set()
+    by_model: dict[str, dict] = {}
     error = None
     try:
         for k, turn in enumerate(case["turns"]):
@@ -137,6 +138,11 @@ def run_case(case: dict, real_model, vision_mode: str, model_name: str) -> dict:
             r = svc.chat(case.get("session", "eval"), plant, line, user, role, _fill(turn["message"], imgs), attach)
             turns_out.append(r)
             models_used.update(r["usage"].get("models_used") or [])
+            for m, b in (r["usage"].get("by_model") or {}).items():
+                acc = by_model.setdefault(m, {"input_tokens": 0, "output_tokens": 0, "calls": 0, "cost_usd": 0.0})
+                for k in ("input_tokens", "output_tokens", "calls"):
+                    acc[k] += b[k]
+                acc["cost_usd"] = round(acc["cost_usd"] + b["cost_usd"], 6)
             tin += r["usage"]["input_tokens"]
             tout += r["usage"]["output_tokens"]
             calls += r["usage"]["llm_calls"]
@@ -156,27 +162,47 @@ def run_case(case: dict, real_model, vision_mode: str, model_name: str) -> dict:
         else:
             approval = {"error": "no_pending_approval"}
     latency = time.time() - t0
-    checks = evaluate(case, turns_out, approval, con, error)
+    checks = evaluate({**case, "checks": _fill(case.get("checks", {}), imgs)}, turns_out, approval, con, error)
     tools = [t for r in turns_out for t in r["tool_calls"]]
     return {"id": case["id"], "use_case": case["use_case"], "title": case["title"], "scripted": bool(case.get("scripted")),
             "success": all(c["ok"] for c in checks) and not error, "checks": checks, "error": error,
-            "tool_selection_ok": all(c["ok"] for c in checks if c["kind"] in ("tools_required", "tools_any",
-                                                                             "tools_forbidden")),
-            "args_ok": all(c["ok"] for c in checks if c["kind"] == "tool_args"),
+            "tool_selection_ok": all(c["ok"] for c in checks if c["kind"] in SELECTION_KINDS),
+            "args_ok": all(c["ok"] for c in checks if c["kind"] in ARG_KINDS),
             "tools": [{"tool": t["tool"], "status": t["status"], "reason": t.get("reason") or t.get("error"),
                        "args": t["args"]} for t in tools],
             "replies": [r["reply"] for r in turns_out], "approval": approval,
             "stop_reasons": [r.get("stop_reason") for r in turns_out],
             "input_tokens": tin, "output_tokens": tout, "llm_calls": calls, "models_used": sorted(models_used),
-            "cost_usd": estimate_cost(sorted(models_used)[-1] if models_used else used_name, tin, tout), "latency_s": round(latency, 2)}
+            "by_model": by_model, "cost_usd": round(sum(b["cost_usd"] for b in by_model.values()), 6),
+            "latency_s": round(latency, 2), "coverage": coverage(case)}
 
 
 def _has(text: str, needle: str) -> bool:
     return needle.lower() in text.lower()
 
 
+SELECTION_KINDS = ("tools_required", "tools_any", "tools_forbidden", "max_tool_calls", "tool_status")
+ARG_KINDS = ("tool_args", "tool_status")
+
+
+def coverage(case: dict) -> dict:
+    c = case.get("checks", {})
+    return {"selection": any(k in c for k in SELECTION_KINDS),
+            "args": any(k in c for k in ("tool_args", "tool_args_any", "tool_args_if_called")) or
+            any("match" in st for st in c.get("tool_status", [])),
+            "args_na": bool(c.get("args_na"))}
+
+
 def _args_match(args: dict, cond: dict) -> bool:
     for k, v in cond.items():
+        if k.endswith("__contains"):
+            if not any(str(x).lower() in str(args.get(k[:-10]) or "").lower() for x in (v if isinstance(v, list) else [v])):
+                return False
+            continue
+        if k.endswith("__prefix"):
+            if not str(args.get(k[:-8]) or "").startswith(v):
+                return False
+            continue
         if k.endswith("__len"):
             if len(args.get(k[:-5]) or []) != v:
                 return False
@@ -196,7 +222,8 @@ def evaluate(case: dict, turns: list[dict], approval: dict | None, con, error: s
     c = case.get("checks", {})
     out: list[dict] = []
     tools = [t for r in turns for t in r["tool_calls"]]
-    executed = [t["tool"] for t in tools if t["status"] != "blocked"]
+    ok_tools = [t["tool"] for t in tools if t["status"] == "ok"]        # solo cuenta como "usada" si terminó OK
+    executed = [t["tool"] for t in tools if t["status"] != "blocked"]  # ejecutada (ok/error/timeout)
     attempted = [t["tool"] for t in tools]
     reply = "\n".join(r["reply"] for r in turns)
     final = turns[-1]["reply"] if turns else ""
@@ -205,18 +232,27 @@ def evaluate(case: dict, turns: list[dict], approval: dict | None, con, error: s
         out.append({"kind": kind, "ok": bool(ok), "detail": detail})
 
     for t in c.get("tools_required", []):
-        add("tools_required", t in executed, f"debe ejecutar {t}")
+        add("tools_required", t in ok_tools, f"debe ejecutar {t} con estado ok")
     for group in c.get("tools_any", []):
-        add("tools_any", any(t in executed for t in group), f"debe ejecutar alguno de {group}")
+        add("tools_any", any(t in ok_tools for t in group), f"debe ejecutar con éxito alguno de {group}")
     for t in c.get("tools_forbidden", []):
         add("tools_forbidden", t not in executed, f"no debe ejecutar {t}")
     for ta in c.get("tool_args", []):
-        ok = any(t["tool"] == ta["tool"] and t["status"] != "blocked" and _args_match(t["args"], ta["match"])
+        ok = any(t["tool"] == ta["tool"] and t["status"] == "ok" and _args_match(t["args"], ta["match"])
                  for t in tools)
-        add("tool_args", ok, f"{ta['tool']} con {ta['match']}")
+        add("tool_args", ok, f"{ta['tool']} (ok) con {ta['match']}")
+    for ta in c.get("tool_args_any", []):
+        ok = any(t["tool"] == ta["tool"] and t["status"] == "ok" and any(_args_match(t["args"], m) for m in ta["any"])
+                 for t in tools)
+        add("tool_args", ok, f"{ta['tool']} (ok) con alguno de {ta['any']}")
+    for ta in c.get("tool_args_if_called", []):
+        calls = [t for t in tools if t["tool"] == ta["tool"]]
+        add("tool_args", all(_args_match(t["args"], ta["match"]) for t in calls),
+            f"toda llamada a {ta['tool']} usa {ta['match']} (llamadas: {len(calls)})")
     for st in c.get("tool_status", []):
         ok = any(t["tool"] == st["tool"] and t["status"] == st["status"] and
-                 (st.get("reason") is None or t.get("reason") == st["reason"]) for t in tools)
+                 (st.get("reason") is None or t.get("reason") == st["reason"]) and
+                 _args_match(t["args"], st.get("match", {})) for t in tools)
         add("tool_status", ok, f"{st}")
     if "max_tool_calls" in c:
         add("max_tool_calls", len(attempted) <= c["max_tool_calls"], f"<= {c['max_tool_calls']} llamadas")
@@ -247,54 +283,80 @@ def evaluate(case: dict, turns: list[dict], approval: dict | None, con, error: s
 
 
 def summarize(results: list[dict]) -> dict:
+    import math
     n = len(results)
-    lat = [r["latency_s"] for r in results]
+    real = [r for r in results if not r["scripted"]]
+    lat = sorted(r["latency_s"] for r in real) or [0]
     by_uc: dict[str, list[bool]] = {}
     for r in results:
         by_uc.setdefault(str(r["use_case"]), []).append(r["success"])
-    return {"cases": n, "success_rate": round(sum(r["success"] for r in results) / n, 3) if n else 0,
-            "tool_selection_rate": round(sum(r["tool_selection_ok"] for r in results) / n, 3) if n else 0,
-            "args_rate": round(sum(r["args_ok"] for r in results) / n, 3) if n else 0,
+    by_model: dict[str, dict] = {}
+    for r in real:
+        for m, b in (r.get("by_model") or {}).items():
+            acc = by_model.setdefault(m, {"input_tokens": 0, "output_tokens": 0, "calls": 0, "cost_usd": 0.0})
+            for k in ("input_tokens", "output_tokens", "calls"):
+                acc[k] += b[k]
+            acc["cost_usd"] = round(acc["cost_usd"] + b["cost_usd"], 6)
+    sel = [r for r in results if r.get("coverage", {}).get("selection")]
+    arg = [r for r in results if r.get("coverage", {}).get("args")]
+    na = [r for r in results if r.get("coverage", {}).get("args_na") and not r.get("coverage", {}).get("args")]
+    rate = lambda xs, f: round(sum(f(r) for r in xs) / len(xs), 3) if xs else None  # noqa: E731
+    return {"cases": n, "cases_real_llm": len(real), "cases_scripted": n - len(real),
+            "success_rate": rate(results, lambda r: r["success"]),
+            "success_rate_real_llm": rate(real, lambda r: r["success"]),
+            "coverage": {"selection_checked": len(sel), "args_checked": len(arg), "args_not_applicable": len(na)},
+            "tool_selection_rate": rate(sel, lambda r: r["tool_selection_ok"]),
+            "args_rate": rate(arg, lambda r: r["args_ok"]),
             "by_use_case": {k: f"{sum(v)}/{len(v)}" for k, v in sorted(by_uc.items())},
-            "input_tokens": sum(r["input_tokens"] for r in results),
-            "output_tokens": sum(r["output_tokens"] for r in results),
-            "llm_calls": sum(r["llm_calls"] for r in results),
-            "cost_usd_total": round(sum(r["cost_usd"] for r in results), 5),
-            "cost_usd_per_case": round(sum(r["cost_usd"] for r in results) / n, 6) if n else 0,
-            "latency_s_mean": round(statistics.mean(lat), 2) if lat else 0,
-            "latency_s_p95": round(sorted(lat)[max(0, int(0.95 * n) - 1)], 2) if lat else 0}
+            "real_llm": {"input_tokens": sum(r["input_tokens"] for r in real),
+                         "output_tokens": sum(r["output_tokens"] for r in real),
+                         "llm_calls": sum(r["llm_calls"] for r in real), "by_model": by_model,
+                         "cost_usd_total": round(sum(b["cost_usd"] for b in by_model.values()), 5),
+                         "cost_usd_per_case": round(sum(b["cost_usd"] for b in by_model.values()) / len(real), 6)
+                         if real else 0},
+            "scripted_llm": {"input_tokens": sum(r["input_tokens"] for r in results if r["scripted"]),
+                             "llm_calls": sum(r["llm_calls"] for r in results if r["scripted"])},
+            "latency_s_mean_real": round(statistics.mean(lat), 2),
+            "latency_s_p95_real": lat[max(0, math.ceil(0.95 * len(lat)) - 1)]}  # nearest-rank
 
 
-def write_report(meta: dict, summary: dict, results: list[dict], path: Path) -> None:
-    L = ["# Evaluación del asistente agéntico (Reto 3)", "",
-         f"Generado por `eval/agent/run_eval.py` el {meta['timestamp']}. Resultados crudos: `{meta['results_file']}`.", "",
-         "## Configuración", "",
-         f"- LLM: `{meta['provider']}` / `{meta['model']}` · visión: `{meta['vision']}` · casos: {summary['cases']}",
-         f"- Intervalo mínimo entre llamadas LLM: {meta['min_interval_s']} s · cada caso con DB re-sembrada.",
-         "- Casos `scripted` (modelo guionado) prueban guardas deterministas; no miden al LLM.",
-         (f"- Casos re-ejecutados tras una corrección y fusionados con `{meta['merged_from']}`: "
-          f"{', '.join(meta['rerun_ids'])}." if meta.get("merged_from") else ""),
-         "- Modelos efectivamente usados (incluye respaldo por cuota): "
-         + ", ".join(sorted({m for r in results for m in r.get("models_used", [])})), "",
-         "## Resultados agregados", "",
+def _pct(x) -> str:
+    return "n/a" if x is None else f"{x:.1%}"
+
+
+def _section(title: str, meta: dict, summary: dict, results: list[dict]) -> list[str]:
+    rl = summary["real_llm"]
+    cov = summary["coverage"]
+    L = [f"## {title}", "",
+         f"- LLM: `{meta['provider']}` / `{meta['model']}` · visión: `{meta['vision']}` · resultados: `{meta['results_file']}`",
+         f"- Casos: {summary['cases']} ({summary['cases_real_llm']} con LLM real, {summary['cases_scripted']} guionados "
+         "que prueban guardas deterministas y no miden al LLM).",
+         (f"- Fusionado con `{meta['merged_from']}`; re-ejecutados: {', '.join(meta['rerun_ids'])}."
+          if meta.get("merged_from") else "- Corrida única, sin fusiones."), "",
          "| Métrica | Valor |", "|---|---|",
-         f"| Éxito de tarea | {summary['success_rate']:.1%} |",
-         f"| Selección correcta de tools | {summary['tool_selection_rate']:.1%} |",
-         f"| Argumentos correctos | {summary['args_rate']:.1%} |",
-         f"| Llamadas LLM totales | {summary['llm_calls']} |",
-         f"| Tokens entrada / salida | {summary['input_tokens']} / {summary['output_tokens']} |",
-         f"| Costo estimado total / por caso (USD) | {summary['cost_usd_total']} / {summary['cost_usd_per_case']} |",
-         f"| Latencia media / p95 por caso (s) | {summary['latency_s_mean']} / {summary['latency_s_p95']} |", "",
+         f"| Éxito de tarea (todos / solo LLM real) | {_pct(summary['success_rate'])} / {_pct(summary['success_rate_real_llm'])} |",
+         f"| Cobertura de checks: selección / argumentos / args no aplica (sin tools esperadas) | "
+         f"{cov['selection_checked']}/{summary['cases']} · {cov['args_checked']}/{summary['cases']} · {cov['args_not_applicable']} |",
+         f"| Selección correcta de tools (sobre casos con check de selección) | {_pct(summary['tool_selection_rate'])} |",
+         f"| Argumentos correctos (sobre casos con check de argumentos) | {_pct(summary['args_rate'])} |",
+         f"| LLM real: llamadas · tokens entrada/salida | {rl['llm_calls']} · {rl['input_tokens']} / {rl['output_tokens']} |",
+         f"| LLM real: costo estimado total / por caso (USD, tarifas no verificadas) | {rl['cost_usd_total']} / {rl['cost_usd_per_case']} |",
+         f"| Guionado (excluido de lo anterior): llamadas · tokens ficticios | {summary['scripted_llm']['llm_calls']} · "
+         f"{summary['scripted_llm']['input_tokens']} |",
+         f"| Latencia por caso LLM real: media / p95 (rango más próximo) | {summary['latency_s_mean_real']} s / "
+         f"{summary['latency_s_p95_real']} s |", "",
+         "Costo por modelo (incluye respaldos): " + "; ".join(
+             f"`{m}`: {b['calls']} llamadas, {b['input_tokens']}/{b['output_tokens']} tokens, USD {b['cost_usd']}"
+             for m, b in rl["by_model"].items()), "",
          "Éxito por caso de uso: " + ", ".join(f"{k}: {v}" for k, v in summary["by_use_case"].items()), "",
-         "## Detalle por caso", "", "| Caso | UC | Éxito | Tools | Tokens in/out | Costo USD | Latencia s |",
-         "|---|---|---|---|---|---|---|"]
+         "| Caso | UC | Éxito | Tools (estado) | Tokens in/out | Latencia s |", "|---|---|---|---|---|---|"]
     for r in results:
         tl = ", ".join(f"{t['tool']}{'' if t['status'] == 'ok' else '(' + str(t['status']) + ')'}" for t in r["tools"])
-        L.append(f"| {r['id']} {'(scripted)' if r['scripted'] else ''} | {r['use_case']} | "
+        L.append(f"| {r['id']}{' (guionado)' if r['scripted'] else ''} | {r['use_case']} | "
                  f"{'OK' if r['success'] else 'FALLA'} | {tl or '-'} | {r['input_tokens']}/{r['output_tokens']} | "
-                 f"{r['cost_usd']} | {r['latency_s']} |")
+                 f"{r['latency_s']} |")
     fails = [r for r in results if not r["success"]]
-    L += ["", "## Fallas (verificaciones no cumplidas)", ""]
+    L += ["", f"### Fallas ({len(fails)})", ""]
     if not fails:
         L.append("Ninguna.")
     for r in fails:
@@ -306,6 +368,18 @@ def write_report(meta: dict, summary: dict, results: list[dict], path: Path) -> 
             L.append(f"  - excepción: {r['error']}")
         rep = (r["replies"][-1] if r["replies"] else "").replace("\n", " ")[:300]
         L.append(f"  - respuesta final (recorte): «{rep}»")
+    return L + [""]
+
+
+def write_report(meta: dict, summary: dict, results: list[dict], path: Path, holdout: dict | None = None) -> None:
+    L = ["# Evaluación del asistente agéntico (Reto 3)", "",
+         f"Generado por `eval/agent/run_eval.py`. Set principal: `eval/agent/cases.yaml` (usado también para ajustar el "
+         "prompt: su resultado es optimista). Holdout: `eval/agent/holdout.yaml` (escrito después del ajuste y no usado "
+         "para tunear). Cada caso corre con DB re-sembrada y checkpointer en memoria.", ""]
+    L += _section("Set principal", meta, summary, results)
+    if holdout:
+        L += _section("Holdout (no usado para ajustar prompt ni checks)", holdout["meta"], holdout["summary"],
+                      holdout["results"])
     if NOTES.exists():
         L += ["", NOTES.read_text()]
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -320,15 +394,18 @@ def main():
     ap.add_argument("--min-interval", type=float, default=float(os.environ.get("LLM_MIN_INTERVAL_S", "4")))
     ap.add_argument("--no-report", action="store_true")
     ap.add_argument("--report-from", default="", help="regenera docs/report/agent_eval.md desde un results JSON")
+    ap.add_argument("--holdout-from", default="", help="results JSON del holdout para incluir en el reporte")
+    ap.add_argument("--set", choices=["main", "holdout"], default="main")
     ap.add_argument("--merge", default="", help="results JSON previo: re-ejecuta --only y reemplaza esos casos")
     a = ap.parse_args()
     os.environ["LLM_MIN_INTERVAL_S"] = str(a.min_interval)
     if a.report_from:
         d = json.loads(Path(a.report_from).read_text())
-        write_report(d["meta"], d["summary"], d["results"], REPORT)
+        h = json.loads(Path(a.holdout_from).read_text()) if a.holdout_from else None
+        write_report(d["meta"], d["summary"], d["results"], REPORT, h)
         print(f"reporte regenerado desde {a.report_from}")
         return
-    cases = load_cases()
+    cases = load_cases(a.set)
     if a.only:
         keep = set(a.only.split(","))
         cases = [c for c in cases if c["id"] in keep]
@@ -362,19 +439,19 @@ def main():
     if a.merge:
         prev = json.loads(Path(a.merge).read_text())
         new_ids = {r["id"] for r in results}
-        order = [c["id"] for c in load_cases()]
+        order = [c["id"] for c in load_cases(a.set)]
         merged = {r["id"]: r for r in prev["results"] if r["id"] not in new_ids}
         merged.update({r["id"]: {**r, "rerun": True} for r in results})
         results = [merged[i] for i in order if i in merged]
     summary = summarize(results)
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     RESULTS.mkdir(parents=True, exist_ok=True)
-    out = RESULTS / f"{ts}.json"
-    meta = {"timestamp": ts, "provider": llm_provider(), "model": model_name, "vision": a.vision,
+    out = RESULTS / f"{ts}{'-holdout' if a.set == 'holdout' else ''}.json"
+    meta = {"timestamp": ts, "set": a.set, "provider": llm_provider(), "model": model_name, "vision": a.vision,
             "min_interval_s": a.min_interval, "results_file": str(out.relative_to(ROOT)),
             "merged_from": a.merge or None, "rerun_ids": a.only.split(",") if a.merge else []}
     out.write_text(json.dumps({"meta": meta, "summary": summary, "results": results}, ensure_ascii=False, indent=1))
-    if not a.no_report:
+    if not a.no_report and a.set == "main":
         write_report(meta, summary, results, REPORT)
     print(json.dumps(summary, indent=1, ensure_ascii=False))
 

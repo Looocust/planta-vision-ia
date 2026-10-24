@@ -20,3 +20,8 @@ class ToolContext:
     vision: VisionClient
     now: datetime
     session_image_ids: list[str] = field(default_factory=list)
+    real_now: datetime | None = None  # reloj de seguridad (expiraciones); now = reloj simulado de planta
+
+    @property
+    def sec_now(self) -> datetime:
+        return self.real_now or datetime.now().replace(microsecond=0)

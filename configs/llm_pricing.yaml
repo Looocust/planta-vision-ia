@@ -10,5 +10,7 @@ models:
   # Modelos 3.x: precio NO verificado al momento de escribir; se asume tarifa de referencia flash.
   gemini-3.5-flash:      {input_per_mtok: 0.50, output_per_mtok: 3.00, verified: false}
   gemini-3.1-flash-lite: {input_per_mtok: 0.10, output_per_mtok: 0.40, verified: false}
+  gemini-3.7-flash:      {input_per_mtok: 0.50, output_per_mtok: 3.00, verified: false}
+  gemini-3.8-flash:      {input_per_mtok: 0.50, output_per_mtok: 3.00, verified: false}
   fake:                  {input_per_mtok: 0.0, output_per_mtok: 0.0}
 default: {input_per_mtok: 0.30, output_per_mtok: 2.50}

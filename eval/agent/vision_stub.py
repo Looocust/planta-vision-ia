@@ -31,7 +31,7 @@ class VisionStub:
     def __init__(self):
         self.registry: dict[str, tuple[str, float, str]] = {}
         self.thresholds = {"min_class_confidence": 0.8, "max_angle_uncertainty_deg": 15.0, "unknown_distance": 0.6}
-        self.active = "vision-1.0.0"
+        self.active = "vision-1.0.1"
         self.calls: list[str] = []
 
     def register(self, data: bytes, label: str, angle: float, scenario: str = "act") -> None:
@@ -68,8 +68,9 @@ class VisionStub:
             n = body.count('name="files"')
             return httpx.Response(200, json={"candidate_version": f"{self.active}+{sku}", "sku": sku, "n_views": n,
                                              "sufficient": n >= 12, "issues": [],
-                                             "metrics": {"accuracy": 0.953, "new_sku_accuracy": 0.97,
-                                                         "angle_mae_deg": 6.9}})
+                                             "metrics": {"n_views": n, "loo_class_accuracy": 0.97,
+                                                         "loo_angle_mae_deg": 6.9, "loo_angle_within_10": 0.83,
+                                                         "most_confusable_known": "obj12"}})
         if path == "/v1/admin/promote":
             v = json.loads(request.content)["candidate_version"]
             self.active = v
