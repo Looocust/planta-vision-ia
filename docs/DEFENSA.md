@@ -207,7 +207,16 @@ Máximo de pasos por turno, máximo de llamadas a tools, detección de la misma 
 | Recuperar la inversión, 5 estaciones | ~27 meses | ~25 meses | **~4,7 meses** | ~4,6 meses |
 | % de automatización mínimo para ahorrar | 85,6% | 83,5% | 80,8% | 80,3% |
 
+**El caso de negocio es un rango, no un número:**
+
+| Escenario | % automatizado | Colombia (Azure) | España (Azure) |
+|---|---|---|---|
+| Pesimista (desconocidos mezclados, medido) | 73,7% | −1.290/mes: no se paga | −3.778/mes: no se paga |
+| Equilibrio | 85,6% CO / 80,8% ES | 0 | 0 |
+| Base (referencias densas, medido) | 90,3% | +505/mes | +5.088/mes |
+
 **Cómo leerlo:**
+0. **La cobertura cambia el signo del caso; el proveedor de nube no.** Por eso el plan de proyecto exige un piloto en sombra antes de retirar al operario.
 1. **La nube no es lo caro.** Lo caro es la **cola de revisión humana**, ~42% del costo actual. Cada punto de automatización vale más que elegir Azure o AWS.
 2. **Con desconocidos mezclados** (73,7% de automatización), **el proyecto no se paga.** Por eso el alta controlada de SKU nuevos y el rechazo de desconocidos son críticos para el negocio.
 3. **España se paga en menos de un año.** En Colombia hay que escalar (5 o más estaciones) y arrancar con un piloto austero.
