@@ -2,7 +2,7 @@
 
 Documento de estudio para exponer y defender el proyecto. Cada bloque responde tres preguntas: **qué problema resuelve, por qué se eligió y qué evidencia demuestra que funciona.**
 
-> Las cifras marcadas con `⟨…⟩` se completan con los resultados reales de `docs/report/results.json` y `docs/report/agent_eval.md`.
+> Todas las cifras salen de `docs/report/results.json` (visión), `docs/report/agent_eval.md` (agente) y `docs/cloud/finops_model.xlsx` (costos).
 
 ---
 
