@@ -84,6 +84,12 @@ function add(text, cls, meta) {  // textContent: la salida del LLM nunca se inte
   // evidencia: vistas similares del servicio de visión (solo URLs /v1/images/objN__A)
   const urls = [...new Set((text||"").match(/https?:\/\/[\w.:-]+\/v1\/images\/obj\d+__\d+/g) || [])].slice(0,6);
   if (urls.length) { const g=document.createElement("div"); for (const u of urls) { const im=document.createElement("img"); im.src=u; im.width=64; im.title=u.split("/").pop(); im.style.marginRight="4px"; g.appendChild(im);} $("log").appendChild(g); }
+  // evidencia de cargas propias: requiere token, se descarga con Authorization y se muestra como blob
+  const ups = [...new Set((text||"").match(/\/v1\/uploads\/img_[a-f0-9]{12}\?plant_id=P\d/g) || [])].slice(0,6);
+  for (const u of ups) {
+    fetch(u,{headers:auth()}).then(r => r.ok ? r.blob() : null).then(b => { if (!b) return;
+      const im=document.createElement("img"); im.src=URL.createObjectURL(b); im.width=64; im.title=u; $("log").appendChild(im); });
+  }
   if (meta) { const m=document.createElement("div"); m.className="meta"; m.textContent=meta; $("log").appendChild(m); }
   $("log").scrollTop = 1e9;
 }

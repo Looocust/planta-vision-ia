@@ -11,7 +11,10 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+import logging
+from contextlib import asynccontextmanager
+
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
@@ -24,7 +27,19 @@ from services.agent.review import ReviewError
 from services.agent.service import AgentService, UploadError
 
 STATIC = Path(__file__).parent / "static"
-app = FastAPI(title="Copiloto operativo de línea", version="1.1.0")
+log = logging.getLogger("agent")
+_LOCAL_CLIENTS = {"127.0.0.1", "::1", "localhost", "testclient"}
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    if demo_login_enabled():
+        log.warning("DEMO_LOGIN=true: /v1/auth/demo-login emite tokens de CUALQUIER usuario del directorio a clientes "
+                    "locales. Solo para demo; en producción debe estar en false y usarse OIDC (Entra ID).")
+    yield
+
+
+app = FastAPI(title="Copiloto operativo de línea", version="1.1.0", lifespan=lifespan)
 
 
 @lru_cache
@@ -90,10 +105,14 @@ def health():
 
 
 @app.post("/v1/auth/demo-login")
-def demo_login(body: DemoLoginIn):
-    """SOLO DEMO (DEMO_LOGIN=true). En producción: login OIDC con Entra ID; este endpoint no existe."""
+def demo_login(body: DemoLoginIn, request: Request):
+    """SOLO DEMO (DEMO_LOGIN=true, por defecto false). Por diseño permite elegir CUALQUIER identidad del directorio
+    simulado, por eso solo responde a clientes locales. En producción: OIDC con Entra ID; este endpoint no existe."""
     if not demo_login_enabled():
         raise HTTPException(404, "demo-login deshabilitado")
+    host = request.client.host if request.client else ""
+    if host not in _LOCAL_CLIENTS:
+        raise HTTPException(403, "demo-login solo acepta clientes locales")
     try:
         return issue_token(body.user_id)
     except AuthFailure as e:

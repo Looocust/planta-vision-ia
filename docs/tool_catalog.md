@@ -8,7 +8,7 @@
 - **Contexto inyectado.** `session_id`, `plant_id`, `line_id`, `user_id`, `role` y los relojes llegan en `ToolContext`, no como argumentos del LLM.
   - `line_id` es opcional y solo acepta líneas de la misma planta; si no, devuelve `scope_violation`.
   - Cualquier argumento no declarado (p. ej. `plant_id`) se rechaza con `invalid_args`.
-- **Guard previo.** Antes de ejecutar se verifica que la tool exista, el esquema, el RBAC, los duplicados/bucles, el presupuesto de tokens y el tiempo del turno. Esto aplica también a las tools de escritura.
+- **Guard previo.** Antes de ejecutar se verifica que la tool exista, el esquema, el RBAC, los duplicados/bucles, el presupuesto de tokens y el tiempo del turno. Además, el ejecutor **re-chequea por cada llamada** de un lote paralelo (tiempo, tokens, pasos y `max_write_calls_per_turn`) justo antes del efecto.
 - **Fallas.**
   - `ToolError`: se devuelve estructurado.
   - Excepción inesperada: `internal_error`, sin stacktrace.
@@ -28,7 +28,7 @@
 
 | Tool | Entrada | Salida | Notas |
 |---|---|---|---|
-| `inspect_images` | `image_ids[1..6]`, `top_k` | Por imagen: decisión ACT/REVIEW/REJECT del servicio, clase y confianza, ángulo e incertidumbre, calidad, razones explicadas, acción recomendada y vistas similares con URL | Solo imágenes de la planta/línea **no expiradas**. Si visión falla (5xx, timeout o circuito abierto): `degraded`, `HOLD`, sin comando al robot. Registra un log de inspección |
+| `inspect_images` | `image_ids[1..6]`, `top_k` | Por imagen: decisión ACT/REVIEW/REJECT del servicio, clase y confianza, ángulo e incertidumbre, calidad, razones explicadas, acción recomendada y vistas similares con URL | Solo en plantas vinculadas a la instancia de visión (si no, `vision_not_bound`). Solo imágenes de la planta/línea **no expiradas**. Si visión falla (5xx, timeout o circuito abierto): `degraded`, `HOLD`, sin comando al robot. Registra un log de inspección |
 | `list_review_queue` | `status` pending\|label_proposed\|labeled, `line_id?`, `limit` | Casos de la planta con evidencia y predicción; si hay propuesta pendiente, también la propuesta | Solo la planta de la sesión |
 | `get_line_metrics` | `shift?`, `date?`, `start?`/`end?`, `line_id?` | Resumen, línea base de 24 h, serie horaria, `model_version_changes_in_window`, eventos de línea, estado y umbrales | — |
 | `get_camera_health` | `line_id?`, `hours_back` o `start`/`end` | Lecturas, rango nominal, anomalías y limpiezas | — |
@@ -85,7 +85,7 @@ Si pasa, el candidato se registra en `staging` **con `plant_id`** y se calculan 
 
 ## Operaciones que modifican el servicio de visión
 
-La demo tiene **una** instancia de visión, vinculada a `P1` (`configs/agent.yaml › vision.bound_plants`). `set_threshold`, `promote_model` y `stage_new_sku` se rechazan con `vision_not_bound` en plantas no vinculadas. En producción hay una instancia de visión en el edge por planta/línea (stamp).
+La demo tiene **una** instancia de visión, vinculada a `P1` (`configs/agent.yaml › vision.bound_plants`). `inspect_images`, `set_threshold`, `promote_model` y `stage_new_sku` se rechazan con `vision_not_bound` en plantas no vinculadas: P2 no puede usar ni modificar la instancia de P1. En producción hay una instancia de visión en el edge por planta/línea (stamp).
 
 Promover:
 - actualiza `lines.model_version` de las líneas de la planta;

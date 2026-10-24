@@ -38,6 +38,8 @@ STOP_MESSAGES = {
                          "(permisos, argumentos inválidos o alcance)."),
     "turn_timeout": "Detuve la ejecución porque se superó el tiempo máximo del turno.",
     "token_budget": "Detuve la ejecución porque se agotó el presupuesto de tokens del turno.",
+    "max_write_calls": ("Detuve la ejecución porque se alcanzó el máximo de acciones de escritura por turno. Las "
+                        "acciones restantes no se ejecutaron; pídelas de nuevo si son necesarias."),
     "llm_error": "El modelo de lenguaje no está disponible en este momento ({detail}). No se ejecutó ninguna acción "
                  "adicional; intente de nuevo en unos minutos.",
 }
@@ -67,6 +69,7 @@ class AgentState(TypedDict, total=False):
     models_used: list[str]
     llm_usage: list[dict]
     pending_labels: list[dict]
+    n_write_calls: int
 
 
 @dataclass
@@ -82,7 +85,7 @@ def new_turn_input(message: str, image_ids: list[str]) -> dict:
     return {"messages": [HumanMessage(content=message)], "turn_id": uuid.uuid4().hex[:12], "steps": 0,
             "n_tool_calls": 0, "blocked": 0, "duplicates": 0, "signatures": [], "approved_calls": [],
             "tokens_in": 0, "tokens_out": 0, "turn_started": time.time(), "stop_reason": None, "stop_detail": None,
-            "pending_approval": None, "tool_log": [], "image_ids": image_ids, "models_used": [], "llm_usage": [], "pending_labels": []}
+            "pending_approval": None, "tool_log": [], "image_ids": image_ids, "models_used": [], "llm_usage": [], "pending_labels": [], "n_write_calls": 0}
 
 
 def _session(config) -> dict:
@@ -217,6 +220,9 @@ def make_graph(deps: Deps, checkpointer=None):
             upd["turn_summaries"] = _summaries(state, ai)
         return upd
 
+    def route_tools(state: AgentState) -> str:
+        return "finalize" if state.get("stop_reason") else "agent"
+
     def route_agent(state: AgentState) -> str:
         if state.get("stop_reason"):
             return "finalize"
@@ -300,8 +306,27 @@ def make_graph(deps: Deps, checkpointer=None):
                           real_now=real_now())
         msgs, log, pending = [], list(state.get("tool_log", [])), state.get("pending_approval")
         pending_labels = list(state.get("pending_labels") or [])
+        stop = None
+        executed_writes = state.get("n_write_calls", 0)
         for tc in state.get("approved_calls", []):
             spec = TOOLS[tc["name"]]
+            # re-chequeo POR LLAMADA dentro del lote (llamadas paralelas): tiempo, tokens, pasos y escrituras
+            if not stop:
+                if time.time() - state.get("turn_started", time.time()) > lim["turn_timeout_s"]:
+                    stop = "turn_timeout"
+                elif state.get("tokens_in", 0) + state.get("tokens_out", 0) > lim["token_budget_per_turn"]:
+                    stop = "token_budget"
+                elif state.get("steps", 0) > lim["max_steps_per_turn"]:
+                    stop = "max_steps"
+                elif spec.kind == "write" and executed_writes >= lim["max_write_calls_per_turn"]:
+                    stop = "max_write_calls"
+            if stop:
+                msgs.append(ToolMessage(content=json.dumps({"error": "not_executed", "message": f"turno detenido ({stop})"}),
+                                        tool_call_id=tc["id"], name=spec.name))
+                log.append({"tool": spec.name, "args": tc.get("args") or {}, "status": "blocked", "reason": stop})
+                continue
+            if spec.kind == "write":
+                executed_writes += 1
             args = spec.input_model.model_validate(tc.get("args") or {})
             t0 = time.time()
             # deadline efectivo: no se espera al worker al vencer el timeout (shutdown sin wait). Un worker de
@@ -337,7 +362,7 @@ def make_graph(deps: Deps, checkpointer=None):
                   action=f"tool_{spec.kind}", tool=spec.name, args=tc.get("args") or {}, outcome=status,
                   detail=out.get("message") if isinstance(out, dict) else None)
         return {"messages": msgs, "tool_log": log, "pending_approval": pending, "approved_calls": [],
-                "pending_labels": pending_labels}
+                "pending_labels": pending_labels, "n_write_calls": executed_writes, **(_stop(stop) if stop else {})}
 
     def finalize_node(state: AgentState) -> dict:
         r = state.get("stop_reason") or "max_steps"
@@ -370,7 +395,7 @@ def make_graph(deps: Deps, checkpointer=None):
     g.add_edge(START, "agent")
     g.add_conditional_edges("agent", route_agent, ["guard", "finalize", "await_approval", END])
     g.add_conditional_edges("guard", route_guard, ["tools", "agent", "finalize"])
-    g.add_edge("tools", "agent")
+    g.add_conditional_edges("tools", route_tools, ["agent", "finalize"])
     g.add_edge("finalize", END)
     g.add_edge("await_approval", END)
     return g.compile(checkpointer=checkpointer)

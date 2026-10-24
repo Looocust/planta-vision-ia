@@ -186,10 +186,12 @@ ARG_KINDS = ("tool_args", "tool_status")
 
 
 def coverage(case: dict) -> dict:
+    """Un caso cuenta como cubierto solo si la expectativa NO está vacía (p. ej. `tools_forbidden: []` no cuenta)."""
     c = case.get("checks", {})
-    return {"selection": any(k in c for k in SELECTION_KINDS),
-            "args": any(k in c for k in ("tool_args", "tool_args_any", "tool_args_if_called")) or
-            any("match" in st for st in c.get("tool_status", [])),
+    nonempty = lambda k: k in c and c[k] not in (None, [], {})  # noqa: E731
+    return {"selection": any(nonempty(k) for k in SELECTION_KINDS),
+            "args": any(nonempty(k) for k in ("tool_args", "tool_args_any", "tool_args_if_called")) or
+            any(st.get("match") for st in c.get("tool_status", [])),
             "args_na": bool(c.get("args_na"))}
 
 
@@ -400,8 +402,17 @@ def main():
     a = ap.parse_args()
     os.environ["LLM_MIN_INTERVAL_S"] = str(a.min_interval)
     if a.report_from:
-        d = json.loads(Path(a.report_from).read_text())
-        h = json.loads(Path(a.holdout_from).read_text()) if a.holdout_from else None
+        def recompute(path: str, which: str) -> dict:
+            # recalcula cobertura y agregados con la definición vigente de los casos (sin nueva corrida LLM)
+            d = json.loads(Path(path).read_text())
+            defs = {c["id"]: c for c in load_cases(which)}
+            for r in d["results"]:
+                r["coverage"] = coverage(defs[r["id"]])
+            d["summary"] = summarize(d["results"])
+            d["meta"]["recomputed_from_saved_results"] = True
+            return d
+        d = recompute(a.report_from, "main")
+        h = recompute(a.holdout_from, "holdout") if a.holdout_from else None
         write_report(d["meta"], d["summary"], d["results"], REPORT, h)
         print(f"reporte regenerado desde {a.report_from}")
         return

@@ -3,12 +3,12 @@
 - **Una sola corrida real** de cada set tras los cambios de la auditoría: principal `20261024-132610` y holdout `20261024-133151-holdout`. Modelo `gemini-3.1-flash-lite` en free tier. No hizo falta el respaldo (`gemini-3.7-flash`/`3.8-flash`): todas las llamadas usaron lite, como muestra el desglose por modelo.
 - **Las cifras no son comparables con las corridas previas** (`123123`, `124602`, `125326`; 88–93 %, conservadas como historial). Desde entonces cambiaron los verificadores:
   - una tool solo cuenta si terminó con estado `ok`;
-  - cobertura de argumentos en 38/43 casos (5 sin tools esperadas);
+  - cobertura recalculada contando solo expectativas no vacías: selección 42/43 (UC6-05 solo verifica efectos y argumentos), argumentos 38/43 (5 sin tools esperadas). Recalculado desde los JSON guardados con `--report-from`, sin corrida nueva;
   - p95 por rango más próximo;
   - tokens guionados separados;
   - UC3-03 y ADV-12 corregidos.
   También cambió el comportamiento: las etiquetas ahora requieren confirmación humana y hay gates y alcance de planta.
-- **Cambios posteriores a la corrida** (no re-evaluados con el LLM para no gastar más cuota; cubiertos por pytest):
+- **Cambios posteriores a la corrida** (no re-evaluados con el LLM para no gastar más cuota; cubiertos por pytest). Además de los dos de abajo: re-chequeo de límites por llamada dentro de lotes paralelos (`max_write_calls_per_turn`), `inspect_images` restringido a plantas vinculadas a la instancia de visión, URL de evidencia de cargas con `plant_id` y demo-login solo para clientes locales:
   1. Validación de formato de `image_ids` en `stage_new_sku`, que corrige la causa de UC5-01 (`test_stage_new_sku_rejects_malformed_image_ids`).
   2. Renombrado de la versión productiva simulada `vision-1.0.0` → `vision-1.0.1` en la siembra, el stub y los checks, para reflejar el artefacto real. No cambia la semántica de ningún caso.
 - La latencia incluye el throttle de 4 s entre llamadas y los backoffs del free tier, así que no representa producción. El costo usa tarifas de referencia **no verificadas** para modelos 3.x; en free tier el costo real es 0.

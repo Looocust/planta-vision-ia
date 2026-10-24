@@ -669,3 +669,76 @@ def test_stage_new_sku_rejects_malformed_image_ids(tmp_path):
         "sku": "SKU-X-01", "image_ids": ids, "angles": list(range(0, 360, 30))})), AIMessage(content="x")])
     r = chat(svc, "alta", who=("P1", "P1-L1", "u_ml", "ml_engineer"))
     assert r["tool_calls"][0]["reason"] == "invalid_args"
+
+
+def test_inspection_refused_for_plant_not_bound_to_vision(tmp_path):
+    svc, model, stub = make_service(tmp_path, [])
+    data = stub.register_file(COIL / "obj5__30.png")
+    img = svc.upload(data, "a.png", "P2", "P2-L1", "u_sup_p2", "supervisor")["image_id"]
+    model.script = [ai_tools(tool_call("inspect_images", {"image_ids": [img]})), AIMessage(content="no")]
+    chat(svc, "inspecciona", who=("P2", "P2-L1", "u_sup_p2", "supervisor"), images=[img])
+    out = last_tool_payload(model)
+    assert out["error"] == "vision_not_bound" and "P2" in out["message"]
+    assert "/v1/predict" not in stub.calls
+
+
+def test_parallel_write_calls_rechecked_per_call(tmp_path, monkeypatch):
+    """Un lote de llamadas paralelas no puede saltarse el límite: cada llamada re-chequea antes del efecto."""
+    from services.agent import graph as g
+    base = g.limits()
+    monkeypatch.setattr(g, "limits", lambda: {**base, "max_write_calls_per_turn": 1})
+    t = lambda cat: tool_call("create_ticket", {"title": f"Ticket {cat}", "description": "descripción suficiente",  # noqa: E731
+                                                "severity": "low", "category": cat}, f"id_{cat}")
+    svc, model, _ = make_service(tmp_path, [ai_tools(t("other"), t("electrical")), AIMessage(content="x")])
+    r = chat(svc, "crea dos tickets", who=("P1", "P1-L1", "u_mnt_p1", "maintenance"))
+    assert r["stop_reason"] == "max_write_calls"
+    assert [x["status"] for x in r["tool_calls"]] == ["ok", "blocked"]
+    assert rows(svc.con, "SELECT COUNT(*) n FROM tickets WHERE created_by='u_mnt_p1' "
+                         "AND ticket_id NOT IN ('TCK-0990','TCK-1003')")[0]["n"] == 1
+
+
+def test_parallel_calls_stop_when_turn_time_expires_mid_batch(tmp_path, monkeypatch):
+    from services.agent import graph as g
+    from services.agent import tools as T
+    base = g.limits()
+    monkeypatch.setattr(g, "limits", lambda: {**base, "turn_timeout_s": 0.3})
+    slow = T.ToolSpec("get_robot_events", "x", T.GetRobotEventsIn, "read", lambda c, a: time.sleep(0.5) or {})
+    monkeypatch.setitem(g.TOOLS, "get_robot_events", slow)
+    svc, model, _ = make_service(tmp_path, [ai_tools(tool_call("get_robot_events", {}, "a"), tool_call("create_ticket", {
+        "title": "Ticket tardío", "description": "descripción suficiente", "severity": "low", "category": "other"}, "b"))])
+    r = chat(svc, "x", who=("P1", "P1-L1", "u_mnt_p1", "maintenance"))
+    assert r["stop_reason"] == "turn_timeout" and r["tool_calls"][-1]["status"] == "blocked", r
+    assert rows(svc.con, "SELECT COUNT(*) n FROM tickets WHERE title='Ticket tardío'")[0]["n"] == 0
+
+
+def test_upload_evidence_url_resolves(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from services.agent import app as app_mod
+    from services.agent.auth import issue_token
+    monkeypatch.setenv("AUTH_SECRET", "test-secret")
+    svc, model, stub = make_service(tmp_path, [])
+    img = upload_coil(svc, stub, "obj29__185", "low_conf")
+    model.script = [ai_tools(tool_call("inspect_images", {"image_ids": [img]})),
+                    ai_tools(tool_call("enqueue_for_review", {"image_id": img})), AIMessage(content="ok"),
+                    ai_tools(tool_call("list_review_queue", {})), AIMessage(content="cola")]
+    chat(svc, "inspecciona", images=[img])
+    chat(svc, "cola", sid="s2")
+    case = next(c for c in last_tool_payload(model)["cases"] if c["image"] == img)
+    monkeypatch.setattr(app_mod, "get_service", lambda: svc)
+    c = TestClient(app_mod.app)
+    H = {"Authorization": f"Bearer {issue_token('u_sup_p1')['token']}"}
+    r = c.get(case["evidence_url"], headers=H)
+    assert r.status_code == 200 and r.headers["content-type"].startswith("image/")
+    assert c.get(case["evidence_url"]).status_code == 401
+
+
+def test_demo_login_is_local_only_and_off_by_default(monkeypatch):
+    from fastapi.testclient import TestClient
+    from services.agent import app as app_mod
+    monkeypatch.delenv("DEMO_LOGIN", raising=False)
+    c = TestClient(app_mod.app)
+    assert c.post("/v1/auth/demo-login", json={"user_id": "u_pm_p1"}).status_code == 404
+    monkeypatch.setenv("DEMO_LOGIN", "true")
+    assert c.post("/v1/auth/demo-login", json={"user_id": "u_pm_p1"}).status_code == 200
+    remote = TestClient(app_mod.app, client=("203.0.113.9", 5000))
+    assert remote.post("/v1/auth/demo-login", json={"user_id": "u_pm_p1"}).status_code == 403

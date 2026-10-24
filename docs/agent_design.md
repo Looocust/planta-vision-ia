@@ -47,7 +47,7 @@ POST /v1/approvals/{id} ─► approvals.decide()  (determinista: RBAC, aprobado
 |---|---|---|
 | Identidad verificada: token bearer firmado con HMAC (`AUTH_SECRET`, emitido por `POST /v1/auth/demo-login` solo con `DEMO_LOGIN=true`; en producción, OIDC de Entra ID). Usuario, rol y plantas salen del token, nunca del cuerpo | `auth.py`, `app.py`, `rbac.authenticate` | `test_http_api_end_to_end`, `test_authentication_role_and_plant` |
 | Etiquetas humanas: el LLM solo propone; la etiqueta llega al dataset tras la confirmación del humano verificado (`POST /v1/review-labels/{case_id}`), en una transacción | `review.py` | `test_compromised_llm_cannot_write_dataset`, `test_http_label_confirmation_by_verified_human` |
-| Vínculo planta ↔ instancia de visión: umbrales, staging y promoción solo en plantas vinculadas (`vision.bound_plants`). Registro y candidatos con alcance de planta | `tools._require_bound_vision`, `_promotion_gates` | `test_plant_isolation_of_model_registry_and_vision_ops` |
+| Vínculo planta ↔ instancia de visión: inspección, umbrales, staging y promoción solo en plantas vinculadas (`vision.bound_plants`). Registro y candidatos con alcance de planta | `tools._require_bound_vision`, `_promotion_gates` | `test_plant_isolation_of_model_registry_and_vision_ops` |
 | Autorización por tool (RBAC). Además, solo se exponen al LLM las tools del rol | `guard`, `rbac.tool_allowed` | `test_rbac_operator_cannot_request_risky_or_tickets`, UC2-03, UC6-04 |
 | Quién puede solicitar o aprobar cada operación riesgosa. Aprobador ≠ solicitante, misma planta, rol registrado | `approvals._check_approver` | `test_risky_op_requires_distinct_authorized_approver`, UC6-03 |
 | Límites de umbrales (rango absoluto y cambio relativo máximo de 30 %) | `tools.validate_risky`, `configs/policy.yaml` | `test_threshold_bounds_and_relative_change`, UC6-05 |
@@ -64,6 +64,7 @@ POST /v1/approvals/{id} ─► approvals.decide()  (determinista: RBAC, aprobado
 | Límite | Valor | Comportamiento |
 |---|---|---|
 | `max_steps_per_turn` | 8 invocaciones LLM | `finalize` con `stop_reason=max_steps` |
+| `max_write_calls_per_turn` | 3 | `max_write_calls`. Se re-chequea **por llamada** dentro de un lote paralelo, igual que el tiempo, los tokens y los pasos |
 | `max_tool_calls_per_turn` | 12 | corta y cierra las llamadas pendientes |
 | `max_identical_calls` | 1 repetición | La 1.ª repetición de tool+args se bloquea ("usa el resultado anterior"). La 2.ª corta el turno con `loop_detected` |
 | `max_blocked_calls_per_turn` | 4 | `too_many_blocked` (p. ej. un LLM insistiendo en una tool prohibida) |
@@ -128,7 +129,7 @@ Ante fallas, `inspect_images` devuelve `degraded: true`, `robot_command: HOLD` y
 - Los resúmenes de turnos antiguos son deterministas (truncados) y no resúmenes LLM: más baratos, pero menos informativos.
 - Los umbrales del servicio de visión son globales en el contrato. El agente los registra por línea en la DB, pero el servicio los aplica a todo.
 
-- Identidad de demo: HMAC con secreto compartido y sin revocación individual. Decisiones serializadas con un lock en proceso, no entre procesos.
+- Identidad de demo: con `DEMO_LOGIN=true` cualquiera puede elegir cualquier identidad del directorio. Es intencional para la demo, está restringido a clientes locales y emite un warning al arrancar. Por defecto vale `false`. La separación solicitante/aprobador demuestra la lógica, no la autenticación real (en producción, OIDC de Entra ID). HMAC con secreto compartido y sin revocación individual. Decisiones serializadas con un lock en proceso, no entre procesos.
 - La redacción de PII es por regex.
 - El endpoint de staging no mide la regresión sobre las clases existentes; se usa la confusión con SKU conocidos como proxy.
 

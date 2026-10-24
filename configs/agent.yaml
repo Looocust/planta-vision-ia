@@ -12,6 +12,7 @@ llm:
 limits:
   max_steps_per_turn: 8             # invocaciones del LLM por turno
   max_tool_calls_per_turn: 12
+  max_write_calls_per_turn: 3       # escrituras por turno (re-chequeado por llamada dentro de un lote paralelo)
   max_identical_calls: 1            # una llamada idéntica (tool+args) repetida en el turno se bloquea
   max_blocked_calls_per_turn: 4     # llamadas rechazadas por guardas antes de cortar
   turn_timeout_s: 120

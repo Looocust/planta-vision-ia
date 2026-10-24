@@ -124,6 +124,7 @@ def _recommend(decision: str, reasons: list[str]) -> str:
 
 
 def inspect_images(ctx: ToolContext, a: InspectImagesIn) -> dict:
+    _require_bound_vision(ctx, "inspect_images")  # la instancia de visión de la demo pertenece a otra(s) planta(s)
     results = []
     degraded = False
     for image_id in a.image_ids:
@@ -228,7 +229,10 @@ def list_review_queue(ctx: ToolContext, a: ListReviewQueueIn) -> dict:
     params.append(a.limit)
     cases = []
     for c in rows(ctx.con, sql, tuple(params)):
-        ev = (ctx.vision.image_url(c["image_ref"]) if c["image_ref"] else f"/v1/uploads/{c['image_id']}")
+        # evidencia: vista de referencia del servicio de visión, o la carga original en la API del agente
+        # (requiere plant_id y token; la UI la descarga con Authorization)
+        ev = (ctx.vision.image_url(c["image_ref"]) if c["image_ref"]
+              else f"/v1/uploads/{c['image_id']}?plant_id={c['plant_id']}")
         cases.append({"case_id": c["case_id"], "line_id": c["line_id"], "created_at": c["created_at"],
                       "image": c["image_ref"] or c["image_id"], "evidence_url": ev,
                       "predicted": {"label": c["predicted_label"], "confidence": c["predicted_confidence"],
