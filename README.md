@@ -72,4 +72,4 @@ docs/                  reportes, arquitectura, cloud, seguridad, validación
 
 ## Guía de defensa
 
-[`docs/DEFENSA.md`](docs/DEFENSA.md) resume las decisiones, las cifras clave, las preguntas difíciles y el vocabulario.
+[`docs/DEFENSA.md`](docs/DEFENSA.md) resume las decisiones, las cifras clave, las preguntas difíciles y el vocabulario. El guion de la demo en vivo está en [`docs/DEMO.md`](docs/DEMO.md).
