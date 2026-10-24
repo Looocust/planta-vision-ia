@@ -37,7 +37,7 @@ up: ## Levanta todo en local sin Docker (datos + modelo + visión :8001 + agente
 
 up-docker: ## Levanta ambos servicios con docker compose (requiere modelo ya entrenado)
 	@test -f .env || cp .env.example .env
-	@test -n "$$(ls -A models 2>/dev/null)" || (echo "Primero: make train" && exit 1)
+	@test -s models/vision-1.0.0/metadata.json -a -s models/vision-1.0.0/model.joblib || (echo "Artefacto incompleto: make train" && exit 1)
 	docker compose up --build -d
 	@echo "Visión: http://localhost:8001/docs  ·  Agente: http://localhost:8002/"
 

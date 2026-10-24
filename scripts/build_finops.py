@@ -1,34 +1,190 @@
 """Genera docs/cloud/finops_model.xlsx con fórmulas vivas.
 
-    uv run python scripts/build_finops.py
+    uv run python scripts/build_finops.py                    # usa el snapshot de precios guardado
+    uv run python scripts/build_finops.py --refresh-prices   # vuelve a consultar precios públicos
 
-Todas las celdas de entrada (azul) viven en la hoja "Supuestos" y tienen un
-nombre definido (p. ej. `estaciones`, `pct_automatizado`). Las demás hojas
-solo contienen fórmulas que referencian esos nombres, así que cambiar un
-supuesto recalcula todo el libro al abrirlo en Excel / LibreOffice / Sheets.
+Todas las entradas (celdas amarillas) viven en la hoja "Supuestos" con nombre definido
+(`estaciones`, `pct_automatizado`, …). Las demás hojas solo contienen fórmulas, así que
+cambiar un supuesto recalcula el libro al abrirlo en Excel / LibreOffice / Sheets.
 
-Precios: los marcados "API verificada" se consultaron el 2026-10-24 en la API
-pública de precios minoristas de Azure (https://prices.azure.com/api/retail/prices,
-región eastus2). Los marcados "Estimado" provienen de las páginas públicas de
-precios o de referencias de mercado y deben verificarse antes de presupuestar.
+Precios y trazabilidad
+----------------------
+Con `--refresh-prices` el script consulta, para dos regiones (EE. UU. y UE/España):
+  * Azure Retail Prices API (pública, sin autenticación): https://prices.azure.com/api/retail/prices
+    con el filtro OData exacto de cada medidor (regiones eastus2 y spaincentral).
+  * AWS Price List Bulk API (pública): https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/<oferta>/current/<región>/index.json
+    buscando el `usagetype` exacto (regiones us-east-1 y eu-south-2).
+El resultado (precio, medidor/usagetype, descripción, consulta y fecha) se guarda en
+docs/cloud/precios_snapshot.json y se vuelca en la hoja "Fuentes". Las filas sin precio
+encontrado usan un valor de referencia marcado "Estimado".
 """
 
 from __future__ import annotations
 
+import datetime as dt
+import json
+import re
+import sys
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 from openpyxl import Workbook
 from openpyxl.comments import Comment
-from openpyxl.formatting.rule import CellIsRule
+from openpyxl.formatting.rule import FormulaRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.workbook.defined_name import DefinedName
 
-OUT = Path(__file__).resolve().parents[1] / "docs" / "cloud" / "finops_model.xlsx"
-FECHA = "2026-10-24"
-AZ_API = "https://prices.azure.com/api/retail/prices (eastus2)"
+ROOT = Path(__file__).resolve().parents[1]
+OUT = ROOT / "docs" / "cloud" / "finops_model.xlsx"
+SNAPSHOT = ROOT / "docs" / "cloud" / "precios_snapshot.json"
 
-# ---------------------------------------------------------------- estilos
+AZ_API = "https://prices.azure.com/api/retail/prices"
+AWS_API = "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/{offer}/current/{region}/index.json"
+REGIONS = {
+    "us": {"az": ["eastus2", "eastus"], "aws": "us-east-1", "label": "EE. UU. (East US 2 / us-east-1)"},
+    "eu": {"az": ["spaincentral", "westeurope"], "aws": "eu-south-2", "label": "UE-España (Spain Central / eu-south-2)"},
+}
+
+# ------------------------------------------------------------------ catálogo de precios
+# Azure: filtro OData (sin región). AWS: oferta + usagetype exacto (sin prefijo regional) + filtros de descripción.
+PRICE_SPECS: dict[str, dict] = {
+    # Azure
+    "az_aca_vcpu": {"az": "serviceName eq 'Azure Container Apps' and meterName eq 'Standard vCPU Active Usage'"},
+    "az_aca_mem": {"az": "serviceName eq 'Azure Container Apps' and meterName eq 'Standard Memory Active Usage'"},
+    "az_aca_pe": {"az": "serviceName eq 'Azure Container Apps' and meterName eq 'Environment Private Endpoint'"},
+    "az_acr_basic": {"az": "serviceName eq 'Container Registry' and meterName eq 'Basic Registry Unit'"},
+    "az_vm_d4sv3": {"az": "serviceName eq 'Virtual Machines' and armSkuName eq 'Standard_D4s_v3' and meterName eq 'D4s v3'", "exclude": "Windows"},
+    "az_pg_d2ds": {"az": "productName eq 'Azure Database for PostgreSQL Flexible Server General Purpose Ddsv5 Series Compute' and skuName eq '2 vCore'"},
+    "az_pg_storage": {"az": "productName eq 'Azure Database for PostgreSQL Flex Server Storage' and meterName eq 'Storage Data Stored'"},
+    "az_search_basic": {"az": "serviceName eq 'Azure Cognitive Search' and meterName eq 'Basic Unit'"},
+    "az_blob_hot_lrs": {"az": "productName eq 'General Block Blob v2' and meterName eq 'Hot LRS Data Stored'"},
+    "az_blob_cool_lrs": {"az": "productName eq 'General Block Blob v2' and meterName eq 'Cool LRS Data Stored'"},
+    "az_blob_archive_lrs": {"az": "productName eq 'General Block Blob v2' and meterName eq 'Archive LRS Data Stored'"},
+    "az_blob_hot_zrs": {"az": "productName eq 'General Block Blob v2' and meterName eq 'Hot ZRS Data Stored'"},
+    "az_iothub_s1": {"az": "serviceName eq 'IoT Hub' and meterName eq 'S1 Unit'"},
+        "az_def_servers_p2": {"az": "productName eq 'Microsoft Defender for Servers' and meterName eq 'Standard P2 Node'"},
+    "az_kv_ops": {"az": "serviceName eq 'Key Vault' and skuName eq 'Standard' and meterName eq 'Operations'"},
+    "az_la_ingest": {"az": "serviceName eq 'Log Analytics' and meterName eq 'Analytics Logs Data Ingestion'"},
+    "az_def_cont_img": {"az": "productName eq 'Microsoft Defender for Containers' and meterName eq 'Standard Images'"},
+    "az_aoai_emb": {"az": "productName eq 'Azure OpenAI' and meterName eq 'text-embedding-3-small-glbl Tokens'"},
+    "az_aoai_mini_in": {"az": "productName eq 'Azure OpenAI' and meterName eq 'gpt 4.1 mini Inp Data Zone Tokens'"},
+    "az_aoai_mini_cache": {"az": "productName eq 'Azure OpenAI' and meterName eq 'gpt 4.1 mini cached Inp DZone Tokens'"},
+    "az_aoai_mini_out": {"az": "productName eq 'Azure OpenAI' and meterName eq 'gpt 4.1 mini Outp Data Zone Tokens'"},
+    "az_aoai_big_in": {"az": "productName eq 'Azure OpenAI' and meterName eq 'gpt 4.1 Inp Data Zone Tokens'"},
+    "az_aoai_big_cache": {"az": "productName eq 'Azure OpenAI' and meterName eq 'gpt 4.1 cached Inp Data Zone Tokens'"},
+    "az_aoai_big_out": {"az": "productName eq 'Azure OpenAI' and meterName eq 'gpt 4.1 Outp Data Zone Tokens'"},
+    # AWS
+    "aws_fargate_vcpu": {"aws": ("AmazonECS", "Fargate-vCPU-Hours:perCPU", [])},
+    "aws_fargate_gb": {"aws": ("AmazonECS", "Fargate-GB-Hours", [])},
+    "aws_alb_hr": {"aws": ("AWSELB", "LoadBalancerUsage", ["Application"])},
+    "aws_alb_lcu": {"aws": ("AWSELB", "LCUUsage", ["Application"])},
+    "aws_vpce_hr": {"aws": ("AmazonVPC", "VpcEndpoint-Hours", [])},
+    "aws_ecr": {"aws": ("AmazonECR", "TimedStorage-ByteHrs", [])},
+    "aws_sm_train": {"aws": ("AmazonSageMaker", "Train:ml.m5.large", [])},
+    "aws_aurora_acu": {"aws": ("AmazonRDS", "Aurora:ServerlessV2Usage", ["PostgreSQL"])},
+    "aws_aurora_storage": {"aws": ("AmazonRDS", "Aurora:StorageUsage", ["Aurora PostgreSQL"])},
+    "aws_s3_std": {"aws": ("AmazonS3", "TimedStorage-ByteHrs", [])},
+    "aws_s3_ia": {"aws": ("AmazonS3", "TimedStorage-SIA-ByteHrs", [])},
+    "aws_s3_gda": {"aws": ("AmazonS3GlacierDeepArchive", "TimedStorage-GDA-ByteHrs", [])},
+    "aws_iot_msg": {"aws": ("AWSIoT", "Messages", [])},
+    "aws_iot_conn": {"aws": ("AWSIoT", "ConnectionMinutes", [])},
+    "aws_greengrass": {"aws": ("AWSGreengrass", "ActiveGGC-Devices", [])},
+    "aws_secrets": {"aws": ("AWSSecretsManager", "AWSSecretsManager-Secrets", [])},
+    "aws_cw_logs": {"aws": ("AmazonCloudWatch", "DataProcessing-Bytes", [])},
+}
+
+
+def _az_lookup(flt: str, region: str, exclude: str | None = None) -> dict | None:
+    full = f"armRegionName eq '{region}' and priceType eq 'Consumption' and {flt}"
+    url = AZ_API + "?" + urllib.parse.urlencode({"$filter": full})
+    with urllib.request.urlopen(url, timeout=60) as r:
+        items = json.load(r).get("Items", [])
+    # Primer tramo con precio > 0 (p. ej. Log Analytics cobra desde el GB 5), sin Spot/Low Priority.
+    items = [i for i in items if i.get("retailPrice", 0) > 0
+             and "Spot" not in i.get("skuName", "") and "Low Priority" not in i.get("skuName", "")
+             and not (exclude and exclude in i.get("productName", ""))]
+    items.sort(key=lambda i: float(i.get("tierMinimumUnits", 0)))
+    if not items:
+        return None
+    i = items[0]
+    return {"price": i["retailPrice"], "unit": i["unitOfMeasure"], "meter": i["meterName"], "sku": i["skuName"],
+            "product": i["productName"], "meter_id": i.get("meterId"), "region": region,
+            "query": f"{AZ_API}?$filter={full}"}
+
+
+_AWS_CACHE: dict[tuple[str, str], dict] = {}
+
+
+def _aws_lookup(offer: str, usagetype: str, desc_filters: list[str], region: str) -> dict | None:
+    k = (offer, region)
+    if k not in _AWS_CACHE:
+        with urllib.request.urlopen(AWS_API.format(offer=offer, region=region), timeout=300) as r:
+            _AWS_CACHE[k] = json.load(r)
+    data = _AWS_CACHE[k]
+    pat = re.compile(r"([A-Z0-9]+-)?" + re.escape(usagetype))
+    od = data.get("terms", {}).get("OnDemand", {})
+    for sku, prod in data["products"].items():
+        ut = prod["attributes"].get("usagetype", "")
+        if not pat.fullmatch(ut):
+            continue
+        for term in od.get(sku, {}).values():
+            for pdim in term["priceDimensions"].values():
+                desc = pdim.get("description", "")
+                if any(f not in desc for f in desc_filters) or "Outposts" in desc or "Trust Store" in desc:
+                    continue
+                if str(pdim.get("beginRange", "0")) not in ("0", "0.0"):
+                    continue
+                price = float(pdim["pricePerUnit"].get("USD", 0))
+                if price <= 0:
+                    continue
+                return {"price": price, "unit": pdim["unit"], "meter": ut, "sku": sku, "product": offer,
+                        "description": desc, "region": region, "query": AWS_API.format(offer=offer, region=region)}
+    return None
+
+
+def refresh_prices() -> dict:
+    today = dt.date.today().isoformat()
+    snap: dict = {"_fecha": today, "_nota": "Generado por scripts/build_finops.py --refresh-prices", "precios": {}}
+    for key, spec in PRICE_SPECS.items():
+        snap["precios"][key] = {}
+        for reg, cfg in REGIONS.items():
+            res = None
+            try:
+                if "az" in spec:
+                    for azr in cfg["az"]:
+                        res = _az_lookup(spec["az"], azr, spec.get("exclude"))
+                        if res:
+                            break
+                else:
+                    offer, ut, filt = spec["aws"]
+                    res = _aws_lookup(offer, ut, filt, cfg["aws"])
+            except Exception as exc:  # red caída, cambio de API…
+                print(f"  ! {key} [{reg}]: {exc}", file=sys.stderr)
+            if res:
+                res["fecha"] = today
+            snap["precios"][key][reg] = res
+            print(f"  {key:22s} {reg}: {res['price'] if res else '—'}")
+    SNAPSHOT.write_text(json.dumps(snap, indent=1, ensure_ascii=False))
+    return snap
+
+
+if "--refresh-prices" in sys.argv:
+    print("Consultando precios públicos…")
+    SNAP = refresh_prices()
+else:
+    SNAP = json.loads(SNAPSHOT.read_text()) if SNAPSHOT.exists() else {"_fecha": None, "precios": {}}
+FECHA = SNAP.get("_fecha") or dt.date.today().isoformat()
+
+
+def price(key: str | None, reg: str) -> dict | None:
+    if not key:
+        return None
+    return (SNAP["precios"].get(key) or {}).get(reg)
+
+
+# ------------------------------------------------------------------ estilos
 BLUE = Font(color="1F4E9E", bold=True)
 BOLD = Font(bold=True)
 H1 = Font(bold=True, size=14, color="FFFFFF")
@@ -38,10 +194,10 @@ FILL_HDR = PatternFill("solid", fgColor="2F5597")
 FILL_IN = PatternFill("solid", fgColor="FFF2CC")
 FILL_SEC = PatternFill("solid", fgColor="D9E1F2")
 FILL_TOT = PatternFill("solid", fgColor="E2EFDA")
+FILL_EST = PatternFill("solid", fgColor="FCE4D6")
 THIN = Side(style="thin", color="BFBFBF")
 BOX = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 WRAP = Alignment(wrap_text=True, vertical="top")
-
 USD = '"$"#,##0.00'
 USD0 = '"$"#,##0'
 PCT = "0.0%"
@@ -52,7 +208,8 @@ wb = Workbook()
 
 
 def name(ws, ref: str, nm: str) -> None:
-    col, row = "".join(c for c in ref if c.isalpha()), "".join(c for c in ref if c.isdigit())
+    col = "".join(c for c in ref if c.isalpha())
+    row = "".join(c for c in ref if c.isdigit())
     wb.defined_names[nm] = DefinedName(nm, attr_text=f"'{ws.title}'!${col}${row}")
 
 
@@ -62,9 +219,9 @@ def title(ws, text: str, sub: str, width: int) -> None:
     for c in range(1, width + 1):
         ws.cell(row=1, column=c).fill = FILL_H1
     ws["A2"] = sub
-    ws["A2"].alignment = Alignment(wrap_text=True)
+    ws["A2"].alignment = Alignment(wrap_text=True, vertical="top")
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=width)
-    ws.row_dimensions[2].height = 45
+    ws.row_dimensions[2].height = 60
 
 
 def header(ws, row: int, cols: list[str]) -> None:
@@ -88,72 +245,85 @@ title(
     sup,
     "Supuestos del modelo FinOps (todo lo editable está aquí)",
     "Celdas amarillas con texto azul = entradas editables. Las demás hojas solo tienen fórmulas. "
-    "Tipo: 'Supuesto' = valor elegido por el candidato y defendible pero no verificado; "
-    "'Referencia' = dato público con fuente; 'Calculado' = fórmula. Moneda de salida: USD.",
+    "Tipo: 'Supuesto' = valor elegido por el candidato, defendible pero no verificado; 'Placeholder' = debe "
+    "reemplazarse por un resultado medido; 'Referencia' = dato público con fuente; 'Calculado' = fórmula. "
+    "Moneda: USD. Región de precios: Colombia → EE. UU. (East US 2 / us-east-1); España → UE (Spain Central / eu-south-2).",
     7,
 )
 header(sup, 4, ["Nombre (rango)", "Descripción", "Valor", "Unidad", "Tipo", "Fuente / justificación", "Fecha"])
 
-# (nombre, descripción, valor o fórmula, unidad, tipo, fuente, formato)
-SUPUESTOS: list[tuple | str] = [
+SUPUESTOS: list = [
     "Operación de la planta",
-    ("plantas", "Plantas en el alcance", 1, "plantas", "Supuesto", "Piloto en una planta; el modelo escala por estaciones", INT),
-    ("estaciones", "Estaciones (líneas de empaque) por planta", 1, "estaciones", "Supuesto", "Caso base del enunciado: 1 estación. Ver hoja Sensibilidad para 5 y 20", INT),
+    ("plantas", "Plantas en el alcance", 1, "plantas", "Supuesto", "Piloto en una planta", INT),
+    ("estaciones", "Estaciones (líneas de empaque) por planta", 1, "estaciones", "Supuesto", "Caso base del enunciado. Ver Sensibilidad para 5 y 20", INT),
     ("horas_semana", "Horas de operación por semana", 120, "h/semana", "Referencia", "Enunciado: 24 h/día × 5 días/semana (3 turnos de 8 h)", INT),
-    ("semanas_mes", "Semanas promedio por mes", "=52/12", "semanas", "Calculado", "52 semanas / 12 meses", NUM),
-    ("horas_mes", "Horas de operación por mes", "=horas_semana*semanas_mes", "h/mes", "Calculado", "120 × 4,33 ≈ 520 h", NUM),
+    ("semanas_mes", "Semanas promedio por mes", "=52/12", "semanas", "Calculado", "52 / 12", NUM),
+    ("horas_mes", "Horas de operación por mes", "=horas_semana*semanas_mes", "h/mes", "Calculado", "≈ 520 h", NUM),
     ("dias_mes", "Días de operación por mes", "=5*semanas_mes", "días/mes", "Calculado", "5 días × 4,33", NUM),
-    ("operadores_turno", "Operadores por turno por estación", 1, "personas", "Referencia", "Enunciado: 1 operador por turno por estación", INT),
-    ("factor_cobertura", "Factor de cobertura (vacaciones, ausentismo, relevos)", 1.15, "×", "Supuesto", "Cubrir 1 puesto 24×5 requiere ~15% más horas pagadas que horas de puesto", NUM),
+    ("operadores_turno", "Operadores por turno por estación", 1, "personas", "Referencia", "Enunciado", INT),
+    ("factor_cobertura", "Factor de cobertura (vacaciones, ausentismo, relevos)", 1.15, "×", "Supuesto", "Cubrir 1 puesto requiere ~15% más horas pagadas que horas de puesto", NUM),
     ("throughput_obj_h", "Objetos procesados por hora por estación", 600, "obj/h", "Supuesto", "1 objeto cada 6 s. Ajustar con el dato real de la línea", INT),
     "Desempeño del sistema automático",
-    ("pct_automatizado", "% de objetos resueltos sin humano (decisión ACT correcta)", 0.95, "%", "Supuesto", "ACTUALIZAR con la cobertura ACT del modelo (docs/report). Placeholder conservador", PCT),
-    ("min_caso_revision", "Minutos humanos por caso en cola (REVIEW/REJECT)", 0.5, "min/caso", "Supuesto", "Mirar evidencia en UI + reubicar físicamente el objeto desviado (~30 s)", NUM),
-    ("fte_residual", "FTE residual por estación (supervisión, atascos, reabastecer)", 0.10, "FTE", "Supuesto", "Persona itinerante que atiende varias estaciones", NUM),
+    ("pct_automatizado", "% de objetos resueltos sin humano (decisión ACT correcta)", 0.95, "%", "Placeholder",
+     "PLACEHOLDER sin evidencia: reemplazar por la cobertura ACT medida en test (docs/report). Ver Sensibilidad 80-99%", PCT),
+    ("min_caso_revision", "Minutos humanos por caso en cola (REVIEW/REJECT)", 0.5, "min/caso", "Supuesto", "Mirar evidencia + reubicar el objeto desviado (~30 s)", NUM),
+    ("fraccion_atencion", "Fracción de las horas de operación de la estación que requiere una persona (supervisión itinerante, atascos, reabastecer)", 0.10, "% horas puesto", "Supuesto",
+     "Horas residuales = fracción × horas_mes × factor_cobertura (≈ 60 h pagadas/mes). NO es FTE", PCT),
     "Costo laboral — escenario Colombia",
-    ("salario_co_cop", "Salario base mensual operador", 1750000, "COP/mes", "Supuesto", "≈1,2 SMMLV 2025 (SMMLV 2025 = 1.423.500 COP, Decreto 1572/2024). Actualizar a 2026", INT),
-    ("factor_prest_co", "Factor prestacional (prestaciones, seguridad social, parafiscales, aux. transporte)", 1.55, "×", "Supuesto", "Rango típico 1,50–1,60 para salarios bajos en Colombia", NUM),
-    ("horas_lab_mes_co", "Horas laborales contratadas por mes", 190, "h/mes", "Supuesto", "Jornada de 44 h/semana (Ley 2101/2021, tramo 2025-2026) × 4,33", INT),
+    ("salario_co_cop", "Salario base mensual operador", 1750000, "COP/mes", "Supuesto", "≈1,2 SMMLV 2025 (1.423.500 COP, Decreto 1572/2024). Actualizar con SMMLV 2026", INT),
+    ("factor_prest_co", "Factor prestacional (prestaciones, seguridad social, parafiscales, aux. transporte)", 1.55, "×", "Supuesto", "Rango típico 1,50-1,60", NUM),
+    ("jornada_semanal_co", "Jornada máxima semanal", 42, "h/semana", "Referencia",
+     "Ley 2101 de 2021: 42 h/semana desde el 15-jul-2026 (Circular MinTrabajo 0101 de 2025)", INT),
+    ("horas_lab_mes_co", "Horas laborales contratadas por mes", "=jornada_semanal_co*semanas_mes", "h/mes", "Calculado", "42 × 4,33 ≈ 182 h", NUM),
     ("pct_nocturno", "% de horas en franja nocturna", 0.33, "%", "Supuesto", "1 de 3 turnos nocturno", PCT),
-    ("recargo_noct_co", "Recargo nocturno", 0.35, "%", "Referencia", "Código Sustantivo del Trabajo art. 168: 35%", PCT),
+    ("recargo_noct_co", "Recargo nocturno", 0.35, "%", "Referencia", "Código Sustantivo del Trabajo art. 168", PCT),
     ("trm_cop_usd", "Tasa de cambio COP por USD", 4000, "COP/USD", "Supuesto", "Verificar TRM del día (banrep.gov.co)", INT),
-    ("costo_hora_co", "Costo cargado por hora-persona (Colombia)", "=salario_co_cop*factor_prest_co/horas_lab_mes_co/trm_cop_usd*(1+recargo_noct_co*pct_nocturno)", "USD/h", "Calculado", "Salario × factor / horas / TRM × recargo nocturno ponderado", USD),
+    ("costo_hora_co", "Costo cargado por hora-persona (Colombia)", "=salario_co_cop*factor_prest_co/horas_lab_mes_co/trm_cop_usd*(1+recargo_noct_co*pct_nocturno)", "USD/h", "Calculado", "", USD),
     "Costo laboral — escenario España",
-    ("salario_es_eur", "Salario bruto anual operador", 22000, "EUR/año", "Supuesto", "Rango de convenios de industria/logística para mozo/operador de línea", INT),
-    ("ss_empresa_es", "Seguridad Social a cargo de la empresa", 0.32, "%", "Supuesto", "≈31-33% (contingencias comunes, desempleo, FOGASA, FP, AT/EP)", PCT),
-    ("horas_anuales_es", "Horas efectivas anuales por convenio", 1760, "h/año", "Supuesto", "Rango 1.750–1.800 h según convenio", INT),
-    ("plus_noct_es", "Plus de nocturnidad", 0.25, "%", "Supuesto", "Estatuto de los Trabajadores art. 36 remite a convenio; 25% es habitual", PCT),
+    ("salario_es_eur", "Salario bruto anual operador", 22000, "EUR/año", "Supuesto", "Rango de convenios de industria/logística", INT),
+    ("ss_empresa_es", "Seguridad Social a cargo de la empresa", 0.32, "%", "Supuesto", "≈31-33%", PCT),
+    ("horas_anuales_es", "Horas efectivas anuales por convenio", 1760, "h/año", "Supuesto", "Rango 1.750-1.800 h", INT),
+    ("plus_noct_es", "Plus de nocturnidad", 0.25, "%", "Supuesto", "ET art. 36 remite a convenio; 25% habitual", PCT),
     ("usd_por_eur", "USD por EUR", 1.15, "USD/EUR", "Supuesto", "Verificar tipo de cambio del día (BCE)", NUM),
-    ("costo_hora_es", "Costo cargado por hora-persona (España)", "=salario_es_eur*(1+ss_empresa_es)/horas_anuales_es*usd_por_eur*(1+plus_noct_es*pct_nocturno)", "USD/h", "Calculado", "Bruto × (1+SS) / horas × USD/EUR × plus nocturno ponderado", USD),
+    ("costo_hora_es", "Costo cargado por hora-persona (España)", "=salario_es_eur*(1+ss_empresa_es)/horas_anuales_es*usd_por_eur*(1+plus_noct_es*pct_nocturno)", "USD/h", "Calculado", "", USD),
     "Imágenes y telemetría",
-    ("muestreo_act", "% de imágenes ACT que se suben a la nube (auditoría / reentrenamiento)", 0.02, "%", "Supuesto", "Todas las REVIEW/REJECT se suben; de las ACT solo una muestra", PCT),
-    ("pct_subidas", "% de imágenes subidas a la nube", "=(1-pct_automatizado)+pct_automatizado*muestreo_act", "%", "Calculado", "No-ACT + muestra de ACT", PCT),
-    ("kb_imagen", "Tamaño medio por imagen subida (JPEG, rostros difuminados)", 150, "KB", "Supuesto", "Cámara ~1,3 MP comprimida", INT),
+    ("muestreo_act", "% de imágenes ACT que se suben a la nube", 0.02, "%", "Supuesto", "Todas las REVIEW/REJECT + muestra de ACT", PCT),
+    ("pct_subidas", "% de imágenes subidas a la nube", "=(1-pct_automatizado)+pct_automatizado*muestreo_act", "%", "Calculado", "", PCT),
+    ("kb_imagen", "Tamaño medio por imagen subida (JPEG, anonimizada)", 150, "KB", "Supuesto", "Cámara ~1,3 MP comprimida", INT),
+    ("img_dia_estacion", "Imágenes subidas por día por estación", "=throughput_obj_h*24*pct_subidas", "img/día", "Calculado",
+     "Se suben directo a Blob/S3 desde el borde (no por IoT Hub/IoT Core)", INT),
     ("gb_imagenes_mes_est", "GB de imágenes nuevas por mes por estación", "=throughput_obj_h*horas_mes*pct_subidas*kb_imagen/1024/1024", "GB/mes", "Calculado", "", NUM),
-    ("dias_hot", "Días en tier caliente (Hot / S3 Standard)", 30, "días", "Supuesto", "Revisión y reentrenamiento recientes", INT),
+    ("dias_hot", "Días en tier caliente (Hot / S3 Standard)", 30, "días", "Supuesto", "", INT),
     ("dias_cool", "Días en tier frío (Cool / S3 Standard-IA)", 150, "días", "Supuesto", "Del día 31 al 180", INT),
-    ("dias_archivo", "Días en archivo (Archive / Glacier Deep Archive)", 915, "días", "Supuesto", "Hasta completar 3 años de retención (auditoría de calidad)", INT),
-    ("msgs_dia_estacion", "Mensajes de telemetría por día por estación", 3000, "msgs/día", "Supuesto", "Métricas agregadas cada 30 s + eventos de decisión agregados", INT),
-    ("gb_logs_mes", "GB de logs / trazas por mes (plataforma)", 10, "GB/mes", "Supuesto", "Logs de apps + trazas OpenTelemetry del agente, con muestreo", INT),
+    ("dias_archivo", "Días en archivo (Archive / Glacier Deep Archive)", 915, "días", "Supuesto", "Hasta 3 años de retención", INT),
+    ("gb_auditoria", "GB acumulados en la cuenta de auditoría (ZRS, inmutable)", 20, "GB", "Supuesto", "Exportación diaria de la tabla de auditoría", INT),
+    ("msgs_telemetria_dia", "Mensajes de telemetría por día por estación (≤ 4 KB)", 3000, "msgs/día", "Supuesto", "Métricas agregadas cada 30 s + eventos", INT),
+    ("msgs_dia_estacion", "Mensajes IoT por día por estación (telemetría + 1 aviso de metadatos por imagen subida)", "=msgs_telemetria_dia+img_dia_estacion", "msgs/día", "Calculado",
+     "Los bytes de la imagen no pasan por IoT Hub; solo un mensaje pequeño con su referencia", INT),
+    ("gb_logs_mes", "GB de logs / trazas por mes", 10, "GB/mes", "Supuesto", "Con muestreo de trazas", INT),
     "Asistente agéntico (LLM)",
-    ("conv_dia_base", "Conversaciones por día (base por planta)", 40, "conv/día", "Supuesto", "Supervisores, calidad, mantenimiento, entrega de turno ×3", INT),
-    ("conv_dia_estacion", "Conversaciones adicionales por día por estación", 20, "conv/día", "Supuesto", "Consultas de cola, diagnósticos, imágenes", INT),
+    ("conv_dia_base", "Conversaciones por día (base por planta)", 40, "conv/día", "Supuesto", "", INT),
+    ("conv_dia_estacion", "Conversaciones adicionales por día por estación", 20, "conv/día", "Supuesto", "", INT),
     ("conv_mes", "Conversaciones por mes", "=(conv_dia_base+conv_dia_estacion*estaciones)*dias_mes", "conv/mes", "Calculado", "", INT),
-    ("tok_in_conv", "Tokens de entrada por conversación (multi-turno, con tools)", 25000, "tokens", "Supuesto", "Prompt de sistema + 13 tools + resultados de tools; medir con usage del agente", INT),
+    ("tok_in_conv", "Tokens de entrada por conversación (multi-turno, con tools)", 25000, "tokens", "Supuesto", "Medir con `usage` del agente", INT),
     ("tok_out_conv", "Tokens de salida por conversación", 1500, "tokens", "Supuesto", "", INT),
-    ("pct_cache", "% de tokens de entrada servidos desde caché de prompt", 0.50, "%", "Supuesto", "Prompt de sistema y definiciones de tools son estables → cacheables", PCT),
-    ("pct_modelo_grande", "% de conversaciones enrutadas al modelo grande", 0.15, "%", "Supuesto", "Solo diagnósticos complejos; el resto va al modelo pequeño", PCT),
-    ("tok_embed_mes", "Tokens de embeddings por mes (reindexado de SOP)", 2000000, "tokens", "Supuesto", "Corpus SOP pequeño, reindexado semanal", INT),
+    ("pct_cache", "% de tokens de entrada servidos desde caché", 0.50, "%", "Supuesto", "Prompt de sistema y tools estables", PCT),
+    ("pct_modelo_grande", "% de conversaciones enrutadas al modelo grande", 0.15, "%", "Supuesto", "Solo diagnósticos complejos", PCT),
+    ("tok_embed_mes", "Tokens de embeddings por mes (reindexado SOP)", 2000000, "tokens", "Supuesto", "", INT),
     "CAPEX e implementación (pago único)",
-    ("capex_pc", "PC industrial fanless por estación (CPU, 16-32 GB, IP65 opcional)", 3000, "USD", "Supuesto", "Rango de mercado USD 2.000–4.000 (Advantech, Siemens IPC, OnLogic)", USD0),
-    ("capex_camara", "Cámara industrial + óptica + iluminación + soporte", 2500, "USD", "Supuesto", "Cámara GigE/USB3 + lente + domo/anillo LED", USD0),
-    ("capex_integracion", "Integración con PLC / robot y puesta en marcha por estación", 15000, "USD", "Supuesto", "Ingeniería de automatización, calibración cámara-robot, FAT/SAT", USD0),
-    ("capex_planta", "Implementación por planta (piloto, validación, capacitación, nube)", 30000, "USD", "Supuesto", "Equipo de proyecto ~2-3 meses (no incluye el desarrollo ya hecho en la demo)", USD0),
-    ("pct_mant_hw", "Mantenimiento anual del hardware de borde (% del hardware)", 0.10, "%/año", "Supuesto", "Repuestos, reemplazo de cámara, soporte", PCT),
+    ("capex_pc", "PC industrial fanless por estación", 3000, "USD", "Supuesto", "Rango de mercado USD 2.000-4.000", USD0),
+    ("capex_camara", "Cámara industrial + óptica + iluminación + soporte", 2500, "USD", "Supuesto", "", USD0),
+    ("capex_integracion", "Integración PLC/robot y puesta en marcha por estación", 15000, "USD", "Supuesto", "Ingeniería de automatización, calibración, FAT/SAT", USD0),
+    ("capex_planta", "Implementación por planta (piloto, validación, capacitación, nube)", 30000, "USD", "Supuesto", "", USD0),
+    ("pct_mant_hw", "Mantenimiento anual del hardware de borde", 0.10, "%/año", "Supuesto", "", PCT),
     "Producción en la nube",
-    ("replicas_bd", "Réplicas de base de datos (1 = sin HA, 2 = HA de zona)", 2, "réplicas", "Supuesto", "Producción: HA. Piloto: poner 1", INT),
-    ("horas_activas_vision_cloud", "Horas activas al mes del servicio de visión en nube (no tiempo real)", 60, "h/mes", "Supuesto", "Inspección de imágenes desde el chat y staging de SKU; escala a cero", INT),
-    ("horas_entrenamiento", "Horas de cómputo de reentrenamiento al mes", 10, "h/mes", "Supuesto", "Modelo clásico en CPU: minutos por corrida; holgura para varias corridas", INT),
+    ("replicas_agente", "Réplicas mínimas del agente en horario de turnos", 2, "réplicas", "Supuesto",
+     "≥ 2 para que la redundancia de zona de Container Apps / ECS en 2 AZ sea real", INT),
+    ("replicas_bd", "Réplicas de base de datos (1 = sin HA, 2 = HA de zona)", 2, "réplicas", "Supuesto", "Producción: HA. Piloto: 1", INT),
+    ("horas_activas_vision_cloud", "Horas activas/mes del servicio de visión en nube (no tiempo real)", 60, "h/mes", "Supuesto", "Escala a cero", INT),
+    ("horas_entrenamiento", "Horas de cómputo de reentrenamiento al mes", 10, "h/mes", "Supuesto", "", INT),
+    ("uplift_ue", "Factor de precio UE vs EE. UU. cuando no hay precio UE verificado", 1.10, "×", "Supuesto",
+     "Solo se usa en filas UE marcadas 'Estimado (US × factor UE)'", NUM),
 ]
 
 row = 5
@@ -181,12 +351,12 @@ for item in SUPUESTOS:
     if nm == "pct_automatizado":
         c.comment = Comment("Coordinador: reemplazar por la cobertura ACT medida en test (reporte del modelo).", "FinOps")
     row += 1
-widths(sup, [24, 58, 16, 11, 12, 70, 12])
+widths(sup, [24, 58, 16, 13, 12, 70, 12])
 sup.freeze_panes = "A5"
 
 # ============================================================ OPERACIÓN ACTUAL
 op = wb.create_sheet("Operación actual")
-title(op, "Costo de la operación manual actual", "Un operador por turno por estación, 24×5. Costos en USD por mes.", 4)
+title(op, "Costo de la operación manual actual", "Un operador por turno por estación, 24×5. USD por mes.", 4)
 header(op, 4, ["Concepto", "Colombia", "España", "Cómo se calcula"])
 OP_ROWS = [
     ("Horas de puesto por mes por estación", "=horas_mes*operadores_turno", "=horas_mes*operadores_turno", "horas_mes × operadores por turno", NUM),
@@ -216,14 +386,16 @@ widths(op, [52, 16, 16, 50])
 
 # ============================================================ HOJAS DE NUBE
 CLOUD_HDR = [
-    "Servicio", "SKU / medidor", "Precio unitario (USD)", "Unidad de precio", "Cantidad mensual",
-    "Incluir (1/0)", "Costo mensual (USD)", "Tipo", "Estado del precio", "Fuente", "Fecha consulta", "Cómo se calcula la cantidad",
+    "Servicio", "SKU / medidor", "Precio EE. UU. (USD)", "Precio UE-España (USD)", "Unidad de precio", "Cantidad mensual",
+    "Incluir (1/0)", "Costo EE. UU. (USD/mes)", "Costo UE (USD/mes)", "Tipo", "Escala con imágenes (1/0)",
+    "Estado precio EE. UU.", "Estado precio UE", "Clave de precio (ver Fuentes)", "Referencia", "Cómo se calcula la cantidad",
 ]
+V = "API verificada"
 
 
-def cloud_sheet(title_txt: str, sub: str, rows: list, prefix: str):
-    ws = wb.create_sheet(prefix)
-    title(ws, title_txt, sub, len(CLOUD_HDR))
+def cloud_sheet(sheet: str, sub: str, rows: list) -> None:
+    ws = wb.create_sheet(sheet)
+    title(ws, f"{sheet} — costo mensual por servicio y región", sub, len(CLOUD_HDR))
     header(ws, 4, CLOUD_HDR)
     r = 5
     for item in rows:
@@ -233,188 +405,216 @@ def cloud_sheet(title_txt: str, sub: str, rows: list, prefix: str):
                 ws.cell(row=r, column=c).fill = FILL_SEC
             r += 1
             continue
-        svc, sku, price, unit, qty, incl, tipo, estado, src, how = item
-        vals = [svc, sku, price, unit, qty, incl, f"=C{r}*E{r}*F{r}", tipo, estado, src, FECHA, how]
+        svc, sku, key, est_us, est_eu, unit, qty, incl, tipo, img, ref, how, *opt = item
+        nm = opt[0] if opt else None
+        pu, pe = price(key, "us"), price(key, "eu")
+        if pu:
+            p_us, st_us = pu["price"], V
+        else:
+            p_us, st_us = est_us, "Estimado"
+        if pe:
+            p_eu, st_eu = pe["price"], V
+        elif est_eu is not None:
+            p_eu, st_eu = est_eu, "Estimado"
+        else:
+            p_eu, st_eu = f"=C{r}*uplift_ue", "Estimado (US × factor UE)"
+        vals = [svc, sku, p_us, p_eu, unit, qty, incl, f"=C{r}*F{r}*G{r}", f"=D{r}*F{r}*G{r}", tipo, img,
+                st_us, st_eu, key or "", ref, how]
         for ci, v in enumerate(vals, start=1):
             c = ws.cell(row=r, column=ci, value=v)
             c.border = BOX
-            if ci in (2, 10, 12):
+            if ci in (2, 15, 16):
                 c.alignment = WRAP
-        ws.cell(row=r, column=3).number_format = "0.000000"
-        ws.cell(row=r, column=3).font = BLUE
-        ws.cell(row=r, column=3).fill = FILL_IN
-        ws.cell(row=r, column=6).font = BLUE
-        ws.cell(row=r, column=6).fill = FILL_IN
-        ws.cell(row=r, column=5).number_format = NUM
-        ws.cell(row=r, column=7).number_format = USD
+        for ci in (3, 4):
+            ws.cell(row=r, column=ci).number_format = "0.0000000"
+            ws.cell(row=r, column=ci).font = BLUE
+            ws.cell(row=r, column=ci).fill = FILL_IN
+        for ci in (7, 11):
+            ws.cell(row=r, column=ci).font = BLUE
+            ws.cell(row=r, column=ci).fill = FILL_IN
+        ws.cell(row=r, column=6).number_format = NUM
+        ws.cell(row=r, column=8).number_format = USD
+        ws.cell(row=r, column=9).number_format = USD
+        if nm:
+            name(ws, f"C{r}", nm)
         r += 1
     last = r - 1
+    p = sheet.lower()
+    ws.conditional_formatting.add(f"L5:M{last}", FormulaRule(formula=['LEFT(L5,8)="Estimado"'], fill=FILL_EST))
     r += 1
-    tot = {}
-    for lbl, crit in (("Plataforma fija", "Plataforma fija"), ("Por estación", "Por estación"), ("LLM", "LLM")):
+    ws.cell(row=r, column=6, value="Resumen").font = BOLD
+    ws.cell(row=r, column=8, value="EE. UU.").font = BOLD
+    ws.cell(row=r, column=9, value="UE-España").font = BOLD
+    r += 1
+    first_sub = r
+    for lbl, crit, key in (("Plataforma fija", "Plataforma fija", "fijo_mes"), ("Por estación", "Por estación", "estacion_total_mes"), ("LLM", "LLM", "llm_mes")):
         ws.cell(row=r, column=6, value=f"Subtotal {lbl}").font = BOLD
-        c = ws.cell(row=r, column=7, value=f'=SUMIF($H$5:$H${last},"{crit}",$G$5:$G${last})')
-        c.number_format = USD
-        c.font = BOLD
-        tot[lbl] = r
+        for col, suf in (("H", ""), ("I", "_ue")):
+            c = ws[f"{col}{r}"]
+            c.value = f'=SUMIF($J$5:$J${last},"{crit}",{col}$5:{col}${last})'
+            c.number_format = USD
+            c.font = BOLD
+            name(ws, f"{col}{r}", f"{p}_{key}{suf}")
         r += 1
     ws.cell(row=r, column=6, value="TOTAL MENSUAL").font = BOLD
-    c = ws.cell(row=r, column=7, value=f"=SUM(G{tot['Plataforma fija']}:G{tot['LLM']})")
-    c.number_format = USD
-    c.font = BOLD
-    for col in (6, 7):
-        ws.cell(row=r, column=col).fill = FILL_TOT
-    p = prefix.lower()
-    name(ws, f"G{r}", f"{p}_total_mes")
-    name(ws, f"G{tot['Plataforma fija']}", f"{p}_fijo_mes")
-    name(ws, f"G{tot['Por estación']}", f"{p}_estacion_total_mes")
-    name(ws, f"G{tot['LLM']}", f"{p}_llm_mes")
+    for col, suf in (("H", ""), ("I", "_ue")):
+        c = ws[f"{col}{r}"]
+        c.value = f"=SUM({col}{first_sub}:{col}{r - 1})"
+        c.number_format = USD
+        c.font = BOLD
+        c.fill = FILL_TOT
+        name(ws, f"{col}{r}", f"{p}_total_mes{suf}")
     r += 2
-    ws.cell(row=r, column=6, value="Costo por estación (marginal)")
-    c = ws.cell(row=r, column=7, value=f"={p}_estacion_total_mes/estaciones")
-    c.number_format = USD
-    name(ws, f"G{r}", f"{p}_por_estacion_mes")
-    r += 1
-    ws.cell(row=r, column=6, value="Costo LLM por conversación")
-    c = ws.cell(row=r, column=7, value=f"={p}_llm_mes/conv_mes")
-    c.number_format = "0.0000"
-    name(ws, f"G{r}", f"{p}_llm_por_conv")
-    r += 1
-    ws.cell(row=r, column=6, value="Costo por objeto procesado")
-    c = ws.cell(row=r, column=7, value=f"={p}_total_mes/(throughput_obj_h*horas_mes*estaciones)")
-    c.number_format = "0.00000"
-    widths(ws, [30, 34, 13, 14, 14, 9, 15, 15, 15, 46, 12, 52])
+    extra = [
+        ("Almacenamiento de imágenes (escala con % subido)", "=SUMPRODUCT({c}$5:{c}$%d,$K$5:$K$%d)" % (last, last), "img_mes", USD),
+        ("Costo por estación (marginal)", f"={p}_estacion_total_mes{{s}}/estaciones", "por_estacion_mes", USD),
+        ("Costo LLM por conversación", f"={p}_llm_mes{{s}}/conv_mes", "llm_por_conv", "0.0000"),
+        ("Costo nube por objeto procesado", f"={p}_total_mes{{s}}/(throughput_obj_h*horas_mes*estaciones)", "por_objeto", "0.00000"),
+    ]
+    for lbl, f, key, fmt in extra:
+        ws.cell(row=r, column=6, value=lbl)
+        for col, suf in (("H", ""), ("I", "_ue")):
+            c = ws[f"{col}{r}"]
+            c.value = f.replace("{c}", col).replace("{s}", suf)
+            c.number_format = fmt
+            name(ws, f"{col}{r}", f"{p}_{key}{suf}")
+        r += 1
+    widths(ws, [30, 34, 12, 12, 13, 13, 8, 13, 13, 14, 10, 14, 16, 18, 40, 50])
     ws.freeze_panes = "C5"
-    ws.conditional_formatting.add(
-        f"I5:I{last}", CellIsRule(operator="equal", formula=['"Estimado"'], fill=PatternFill("solid", fgColor="FCE4D6"))
-    )
-    return ws
 
 
-# Cantidades reutilizables
 IMG_HOT = "=gb_imagenes_mes_est*estaciones*dias_hot/30"
 IMG_COOL = "=gb_imagenes_mes_est*estaciones*dias_cool/30"
 IMG_ARCH = "=gb_imagenes_mes_est*estaciones*dias_archivo/30"
-SMALL_IN_FRESH = "=conv_mes*(1-pct_modelo_grande)*tok_in_conv*(1-pct_cache)/1000"
-SMALL_IN_CACHE = "=conv_mes*(1-pct_modelo_grande)*tok_in_conv*pct_cache/1000"
+SMALL_IN = "=conv_mes*(1-pct_modelo_grande)*tok_in_conv*(1-pct_cache)/1000"
+SMALL_CA = "=conv_mes*(1-pct_modelo_grande)*tok_in_conv*pct_cache/1000"
 SMALL_OUT = "=conv_mes*(1-pct_modelo_grande)*tok_out_conv/1000"
-BIG_IN_FRESH = "=conv_mes*pct_modelo_grande*tok_in_conv*(1-pct_cache)/1000"
-BIG_IN_CACHE = "=conv_mes*pct_modelo_grande*tok_in_conv*pct_cache/1000"
+BIG_IN = "=conv_mes*pct_modelo_grande*tok_in_conv*(1-pct_cache)/1000"
+BIG_CA = "=conv_mes*pct_modelo_grande*tok_in_conv*pct_cache/1000"
 BIG_OUT = "=conv_mes*pct_modelo_grande*tok_out_conv/1000"
+AOAI = "https://azure.microsoft.com/pricing/details/azure-openai/"
+F, E_, L = "Plataforma fija", "Por estación", "LLM"
 
-V = "API verificada"
-E = "Estimado"
-AOAI = "https://azure.microsoft.com/pricing/details/cognitive-services/openai-service/"
-
+# (servicio, sku, clave, est_us, est_eu, unidad, cantidad, incluir, tipo, imágenes, referencia, cómo[, nombre_precio])
 AZURE = [
     "Plano de nube — cómputo",
-    ("Azure Container Apps (agente)", "Consumo · vCPU activa (0,5 vCPU)", 0.000024, "vCPU-segundo", "=0.5*3600*horas_mes", 1, "Plataforma fija", V, AZ_API,
-     "0,5 vCPU × horas de operación (min. 1 réplica en turno; escala a 0 fines de semana). No descuenta la cuota gratuita mensual (conservador)"),
-    ("Azure Container Apps (agente)", "Consumo · memoria activa (1 GiB)", 0.000003, "GiB-segundo", "=1*3600*horas_mes", 1, "Plataforma fija", V, AZ_API, "1 GiB × horas de operación"),
-    ("Azure Container Apps (visión no tiempo real)", "Consumo · vCPU + memoria (1 vCPU, 2 GiB)", 0.000030, "segundo", "=3600*horas_activas_vision_cloud", 1, "Plataforma fija", V, AZ_API,
-     "1×0,000024 + 2×0,000003 por segundo activo; escala a cero"),
-    ("Azure Container Registry", "Basic", 0.1666, "día", "=30.4", 1, "Plataforma fija", V, AZ_API, "Imágenes de contenedor para nube y borde"),
-    ("Azure Machine Learning", "Compute cluster CPU (D4s_v3 aprox.)", 0.20, "hora", "=horas_entrenamiento", 1, "Plataforma fija", E,
-     "https://azure.microsoft.com/pricing/details/machine-learning/", "Workspace sin cargo; solo se paga cómputo. Cluster escala a 0"),
+    ("Container Apps (agente)", "Consumo · vCPU activa (0,5 vCPU por réplica)", "az_aca_vcpu", 0.000024, None, "vCPU-segundo",
+     "=replicas_agente*0.5*3600*horas_mes", 1, F, 0, "", "réplicas × 0,5 vCPU × horas de operación (2 réplicas en zonas distintas). Sin descontar la cuota gratuita"),
+    ("Container Apps (agente)", "Consumo · memoria activa (1 GiB por réplica)", "az_aca_mem", 0.000003, None, "GiB-segundo",
+     "=replicas_agente*1*3600*horas_mes", 1, F, 0, "", "réplicas × 1 GiB × horas"),
+    ("Container Apps (visión no tiempo real)", "Consumo · vCPU activa (1 vCPU)", "az_aca_vcpu", 0.000024, None, "vCPU-segundo",
+     "=3600*horas_activas_vision_cloud", 1, F, 0, "", "Escala a cero"),
+    ("Container Apps (visión no tiempo real)", "Consumo · memoria activa (2 GiB)", "az_aca_mem", 0.000003, None, "GiB-segundo",
+     "=2*3600*horas_activas_vision_cloud", 1, F, 0, "", ""),
+    ("Container Apps — Private Endpoint del entorno", "Environment Private Endpoint", "az_aca_pe", 0.1, None, "hora", "=730", 1, F, 0,
+     "https://learn.microsoft.com/azure/container-apps/private-endpoints-with-dns", "Chat accesible solo desde la red corporativa"),
+    ("Container Registry", "Basic", "az_acr_basic", 0.1666, None, "día", "=30.4", 1, F, 0, "", ""),
+    ("Azure Machine Learning (compute cluster)", "D4s v3 Linux", "az_vm_d4sv3", 0.192, None, "hora", "=horas_entrenamiento", 1, F, 0,
+     "", "Workspace sin cargo; cluster escala a 0"),
     "Plano de nube — datos",
-    ("Azure Database for PostgreSQL Flexible", "General Purpose D2ds_v5 (2 vCore)", 0.178, "hora", "=730*replicas_bd", 1, "Plataforma fija", V, AZ_API,
-     "0,089 USD/vCore-h × 2 vCore. Réplica HA de zona duplica cómputo"),
-    ("Azure Database for PostgreSQL Flexible", "Almacenamiento SSD", 0.115, "GB-mes", "=64*replicas_bd", 1, "Plataforma fija", V, AZ_API, "64 GB por réplica"),
-    ("Azure AI Search", "Basic (1 unidad, 15 GB, semántico incluido en cuota gratuita)", 0.101, "hora", "=730", 1, "Plataforma fija", V, AZ_API,
-     "Índice de SOP/manuales con búsqueda híbrida. Alternativa más barata: pgvector en la misma PostgreSQL"),
-    ("Azure OpenAI", "text-embedding-3-small", 0.00002, "1K tokens", "=tok_embed_mes/1000", 1, "Plataforma fija", E, AOAI, "Reindexado de SOP"),
-    ("Azure Blob Storage", "Hot LRS (imágenes recientes)", 0.0184, "GB-mes", IMG_HOT, 1, "Por estación", V, AZ_API, "Stock en Hot = GB/mes × días en Hot / 30"),
-    ("Azure Blob Storage", "Cool LRS", 0.01, "GB-mes", IMG_COOL, 1, "Por estación", V, AZ_API, "Política de ciclo de vida: Hot→Cool día 30"),
-    ("Azure Blob Storage", "Archive LRS", 0.002, "GB-mes", IMG_ARCH, 1, "Por estación", V, AZ_API, "Cool→Archive día 180; borrar a 3 años"),
-    ("Azure Blob Storage", "Transacciones y recuperaciones (aprox.)", 5, "mes", "=estaciones", 1, "Por estación", E, "https://azure.microsoft.com/pricing/details/storage/blobs/", "Escrituras + lecturas desde la cola de revisión"),
+    ("PostgreSQL Flexible", "General Purpose D2ds_v5 (2 vCore)", "az_pg_d2ds", 0.178, None, "hora", "=730*replicas_bd", 1, F, 0, "",
+     "Réplica HA de zona duplica cómputo"),
+    ("PostgreSQL Flexible", "Almacenamiento SSD", "az_pg_storage", 0.115, None, "GB-mes", "=64*replicas_bd", 1, F, 0, "", "64 GB por réplica"),
+    ("Azure AI Search", "Basic (1 réplica, sin SLA de consulta)", "az_search_basic", 0.101, None, "hora", "=730", 1, F, 0, "",
+     "Alternativa más barata: pgvector en la PostgreSQL"),
+    ("Azure OpenAI", "text-embedding-3-small (global)", "az_aoai_emb", 0.00002, None, "1K tokens", "=tok_embed_mes/1000", 1, F, 0, AOAI, ""),
+    ("Storage — cuenta de imágenes (LRS)", "Hot LRS", "az_blob_hot_lrs", 0.0208, None, "GB-mes", IMG_HOT, 1, E_, 1, "", "Hot 30 días"),
+    ("Storage — cuenta de imágenes (LRS)", "Cool LRS", "az_blob_cool_lrs", 0.0152, None, "GB-mes", IMG_COOL, 1, E_, 1, "", "Cool hasta el día 180"),
+    ("Storage — cuenta de imágenes (LRS)", "Archive LRS", "az_blob_archive_lrs", 0.002, None, "GB-mes", IMG_ARCH, 1, E_, 1, "", "Archive hasta 3 años (Archive no admite ZRS)"),
+    ("Storage — cuenta de imágenes (LRS)", "Transacciones y recuperaciones (aprox.)", None, 5, None, "mes", "=estaciones", 1, E_, 0,
+     "https://azure.microsoft.com/pricing/details/storage/blobs/", "Escrituras desde el borde + lecturas de revisión"),
+    ("Storage — cuenta de auditoría (ZRS, inmutable)", "Hot ZRS", "az_blob_hot_zrs", 0.0228, None, "GB-mes", "=gb_auditoria", 1, F, 0, "",
+     "Cuenta separada: la redundancia es por cuenta"),
     "Borde y dispositivos",
-    ("Azure IoT Hub", "S1 (400.000 msgs/día por unidad)", 25, "unidad-mes", "=MAX(1,ROUNDUP(msgs_dia_estacion*estaciones/400000,0))", 1, "Plataforma fija", V, AZ_API,
-     "Unidades = msgs/día / 400k. Incluye device twins y despliegue de módulos IoT Edge"),
-    ("Azure IoT Edge runtime", "Runtime open source en el PC industrial", 0, "dispositivo-mes", "=estaciones", 1, "Por estación", V,
-     "https://azure.microsoft.com/products/iot-edge/", "Sin cargo de licencia; se paga IoT Hub"),
-    ("AKS Edge Essentials (alternativa)", "Licencia por dispositivo", 2.5, "dispositivo-mes", "=estaciones", 0, "Por estación", V, AZ_API,
-     "Solo si se elige Kubernetes en el borde (Incluir=1)"),
-    ("Defender for Servers P2 (vía Azure Arc)", "Por PC industrial", 0.02, "nodo-hora", "=730*estaciones", 1, "Por estación", V, AZ_API, "EDR y gestión de vulnerabilidades del PC de borde"),
+    ("IoT Hub", "S1 (400.000 msgs/día por unidad, 4 KB)", "az_iothub_s1", 25, None, "unidad-mes",
+     "=MAX(1,ROUNDUP(msgs_dia_estacion*estaciones/400000,0))", 1, F, 0, "",
+     "Solo telemetría y avisos ≤ 4 KB; las imágenes van directo a Blob"),
+    ("IoT Edge runtime", "Open source", None, 0, 0, "dispositivo-mes", "=estaciones", 1, E_, 0, "https://azure.microsoft.com/products/iot-edge/", "Sin licencia"),
+    ("AKS Edge Essentials (alternativa)", "Licencia por dispositivo (API sin región, 2026-10-24)", None, 2.5, None, "dispositivo-mes", "=estaciones", 0, E_, 0, "",
+     "Solo si se elige Kubernetes en el borde"),
+    ("Defender for Servers P2 (vía Arc)", "Por PC industrial", "az_def_servers_p2", 0.02, None, "nodo-hora", "=730*estaciones", 1, E_, 0, "", ""),
     "Seguridad, red y observabilidad",
-    ("Azure Key Vault", "Standard · operaciones", 0.03, "10K ops", "=20", 1, "Plataforma fija", V, AZ_API, "~200K operaciones/mes (con caché de secretos)"),
-    ("Private Endpoints", "Por endpoint (Storage, PostgreSQL, Key Vault, OpenAI, Search)", 0.01, "hora", "=5*730", 1, "Plataforma fija", E,
-     "https://azure.microsoft.com/pricing/details/private-link/", "5 endpoints × 730 h (+ 0,01 USD/GB procesado, despreciable)"),
-    ("Log Analytics + Application Insights", "Analytics Logs · ingesta", 2.76, "GB", "=MAX(0,gb_logs_mes-5)", 1, "Plataforma fija", V, AZ_API, "Primeros 5 GB/mes gratis por cuenta de facturación"),
-    ("Defender for Cloud", "Containers · escaneo de imágenes", 0.29, "imagen", "=10", 1, "Plataforma fija", V, AZ_API, "~10 imágenes nuevas/mes"),
-    ("Defender for Cloud", "Storage (por cuenta, aprox.)", 10, "cuenta-mes", "=1", 1, "Plataforma fija", E, "https://azure.microsoft.com/pricing/details/defender-for-cloud/", "Detección de malware/anomalías en Blob"),
-    ("Azure Front Door Standard + WAF (opcional)", "Tarifa base", 35, "mes", "=1", 0, "Plataforma fija", E, "https://azure.microsoft.com/pricing/details/frontdoor/",
-     "Solo si el chat se expone fuera de la red corporativa"),
-    "Asistente agéntico (LLM)",
-    ("Azure OpenAI", "gpt-4.1-mini · Data Zone · entrada", 0.00044, "1K tokens", SMALL_IN_FRESH, 1, "LLM", V, AZ_API, "Modelo por defecto (85%). Data Zone = datos dentro de EE.UU./UE"),
-    ("Azure OpenAI", "gpt-4.1-mini · Data Zone · entrada en caché", 0.00011, "1K tokens", SMALL_IN_CACHE, 1, "LLM", V, AZ_API, "Prompt caching automático (prefijos ≥1.024 tokens)"),
-    ("Azure OpenAI", "gpt-4.1-mini · Data Zone · salida", 0.00176, "1K tokens", SMALL_OUT, 1, "LLM", V, AZ_API, ""),
-    ("Azure OpenAI", "gpt-4.1 · Data Zone · entrada", 0.0022, "1K tokens", BIG_IN_FRESH, 1, "LLM", E, AOAI, "Modelo grande para diagnósticos (15%)"),
-    ("Azure OpenAI", "gpt-4.1 · Data Zone · entrada en caché", 0.00055, "1K tokens", BIG_IN_CACHE, 1, "LLM", E, AOAI, ""),
-    ("Azure OpenAI", "gpt-4.1 · Data Zone · salida", 0.0088, "1K tokens", BIG_OUT, 1, "LLM", E, AOAI, ""),
+    ("Key Vault", "Standard · operaciones", "az_kv_ops", 0.03, None, "10K ops", "=20", 1, F, 0, "", "~200K operaciones/mes"),
+    ("Private Endpoints de PaaS", "Storage ×2, PostgreSQL, Key Vault, OpenAI, Search", None, 0.01, 0.01, "hora", "=6*730", 1, F, 0,
+     "https://azure.microsoft.com/pricing/details/private-link/", "6 endpoints (precio de lista no localizado en la API → estimado)"),
+    ("Log Analytics + Application Insights", "Analytics Logs · ingesta", "az_la_ingest", 2.76, None, "GB", "=MAX(0,gb_logs_mes-5)", 1, F, 0, "",
+     "Primeros 5 GB/mes gratis"),
+    ("Defender for Containers", "Escaneo de imágenes", "az_def_cont_img", 0.29, None, "imagen", "=10", 1, F, 0, "", ""),
+    ("Defender for Storage", "Por cuenta (aprox.)", None, 10, None, "cuenta-mes", "=2", 1, F, 0,
+     "https://azure.microsoft.com/pricing/details/defender-for-cloud/", "2 cuentas (imágenes, auditoría)"),
+    ("Front Door Standard + WAF (opcional)", "Tarifa base", None, 35, None, "mes", "=1", 0, F, 0,
+     "https://azure.microsoft.com/pricing/details/frontdoor/", "Solo si el chat se expone fuera de la red corporativa"),
+    "Asistente agéntico (LLM) — Data Zone (EE. UU. o UE según región)",
+    ("Azure OpenAI", "gpt-4.1-mini · entrada", "az_aoai_mini_in", 0.00044, None, "1K tokens", SMALL_IN, 1, L, 0, AOAI, "85% de conversaciones"),
+    ("Azure OpenAI", "gpt-4.1-mini · entrada en caché", "az_aoai_mini_cache", 0.00011, None, "1K tokens", SMALL_CA, 1, L, 0, AOAI, ""),
+    ("Azure OpenAI", "gpt-4.1-mini · salida", "az_aoai_mini_out", 0.00176, None, "1K tokens", SMALL_OUT, 1, L, 0, AOAI, ""),
+    ("Azure OpenAI", "gpt-4.1 · entrada", "az_aoai_big_in", 0.0022, None, "1K tokens", BIG_IN, 1, L, 0, AOAI, "15% de conversaciones", "azure_big_in"),
+    ("Azure OpenAI", "gpt-4.1 · entrada en caché", "az_aoai_big_cache", 0.00055, None, "1K tokens", BIG_CA, 1, L, 0, AOAI, "", "azure_big_cache"),
+    ("Azure OpenAI", "gpt-4.1 · salida", "az_aoai_big_out", 0.0088, None, "1K tokens", BIG_OUT, 1, L, 0, AOAI, "", "azure_big_out"),
 ]
 
-AWS_P = "https://aws.amazon.com/{}/pricing/"
+AWSP = "https://aws.amazon.com/{}/pricing/"
 AWS = [
     "Plano de nube — cómputo",
-    ("Amazon ECS on Fargate (agente)", "vCPU (0,5 vCPU, Linux x86)", 0.04048, "vCPU-hora", "=0.5*horas_mes", 1, "Plataforma fija", E, AWS_P.format("fargate"),
-     "Igual perfil que en Azure. Fargate tras ALB no escala a cero de forma nativa"),
-    ("Amazon ECS on Fargate (agente)", "Memoria (1 GB)", 0.004445, "GB-hora", "=1*horas_mes", 1, "Plataforma fija", E, AWS_P.format("fargate"), ""),
-    ("Amazon ECS on Fargate (visión no tiempo real)", "1 vCPU + 2 GB", 0.04937, "hora", "=horas_activas_vision_cloud", 1, "Plataforma fija", E, AWS_P.format("fargate"),
-     "0,04048 + 2×0,004445; tarea bajo demanda"),
-    ("Application Load Balancer", "Hora + ~1 LCU", 0.0305, "hora", "=730", 1, "Plataforma fija", E, AWS_P.format("elasticloadbalancing"), "0,0225 h + 0,008 LCU-h"),
-    ("NAT Gateway", "Hora (1 AZ)", 0.045, "hora", "=730", 1, "Plataforma fija", E, "https://aws.amazon.com/vpc/pricing/", "Salida de subredes privadas; datos aparte"),
-    ("Amazon ECR", "Almacenamiento", 0.10, "GB-mes", "=3", 1, "Plataforma fija", E, AWS_P.format("ecr"), ""),
-    ("Amazon SageMaker AI", "Training ml.m5.large", 0.115, "hora", "=horas_entrenamiento", 1, "Plataforma fija", E, AWS_P.format("sagemaker-ai"),
+    ("ECS Fargate (agente)", "vCPU (0,5 por tarea)", "aws_fargate_vcpu", 0.04048, None, "vCPU-hora", "=replicas_agente*0.5*horas_mes", 1, F, 0, "", "2 tareas en 2 AZ"),
+    ("ECS Fargate (agente)", "Memoria (1 GB por tarea)", "aws_fargate_gb", 0.004445, None, "GB-hora", "=replicas_agente*1*horas_mes", 1, F, 0, "", ""),
+    ("ECS Fargate (visión no tiempo real)", "vCPU (1)", "aws_fargate_vcpu", 0.04048, None, "vCPU-hora", "=horas_activas_vision_cloud", 1, F, 0, "", "Tarea bajo demanda"),
+    ("ECS Fargate (visión no tiempo real)", "Memoria (2 GB)", "aws_fargate_gb", 0.004445, None, "GB-hora", "=2*horas_activas_vision_cloud", 1, F, 0, "", ""),
+    ("Application Load Balancer", "Hora", "aws_alb_hr", 0.0225, None, "hora", "=730", 1, F, 0, "", ""),
+    ("Application Load Balancer", "LCU (~1)", "aws_alb_lcu", 0.008, None, "LCU-hora", "=730", 1, F, 0, "", ""),
+    ("NAT Gateway", "Hora (1 AZ)", None, 0.045, None, "hora", "=730", 1, F, 0, "https://aws.amazon.com/vpc/pricing/",
+     "Precio en la oferta EC2 (no consultada) → estimado"),
+    ("Amazon ECR", "Almacenamiento", "aws_ecr", 0.10, None, "GB-mes", "=3", 1, F, 0, "", ""),
+    ("SageMaker AI", "Training ml.m5.large", "aws_sm_train", 0.115, None, "hora", "=horas_entrenamiento", 1, F, 0, "",
      "Model Registry y Pipelines sin cargo propio"),
     "Plano de nube — datos",
-    ("Amazon Aurora PostgreSQL Serverless v2", "ACU-hora (promedio 1 ACU)", 0.12, "ACU-hora", "=1*730*replicas_bd", 1, "Plataforma fija", E, AWS_P.format("rds/aurora"),
-     "Estado, auditoría y vector store (pgvector) de Bedrock Knowledge Bases. Réplica lectora en otra AZ = HA"),
-    ("Amazon Aurora PostgreSQL", "Almacenamiento", 0.10, "GB-mes", "=64", 1, "Plataforma fija", E, AWS_P.format("rds/aurora"), "Almacenamiento compartido entre réplicas"),
-    ("Amazon Bedrock Knowledge Bases", "Embeddings Titan Text v2", 0.00002, "1K tokens", "=tok_embed_mes/1000", 1, "Plataforma fija", E, AWS_P.format("bedrock"),
-     "KB sobre Aurora pgvector (evita mínimo de OpenSearch Serverless)"),
-    ("Amazon OpenSearch Serverless (alternativa)", "OCU-hora (mín. 1 OCU sin redundancia)", 0.24, "OCU-hora", "=2*730", 0, "Plataforma fija", E, AWS_P.format("opensearch-service"),
-     "No incluido: mínimo ~350 USD/mes desproporcionado para pocos SOP"),
-    ("Amazon S3", "Standard", 0.023, "GB-mes", IMG_HOT, 1, "Por estación", E, AWS_P.format("s3"), "Lifecycle: Standard→IA día 30"),
-    ("Amazon S3", "Standard-IA", 0.0125, "GB-mes", IMG_COOL, 1, "Por estación", E, AWS_P.format("s3"), "IA→Deep Archive día 180"),
-    ("Amazon S3", "Glacier Deep Archive", 0.00099, "GB-mes", IMG_ARCH, 1, "Por estación", E, AWS_P.format("s3"), "Expira a 3 años"),
-    ("Amazon S3", "Solicitudes y recuperaciones (aprox.)", 5, "mes", "=estaciones", 1, "Por estación", E, AWS_P.format("s3"), ""),
+    ("Aurora PostgreSQL Serverless v2", "ACU-hora (promedio 1 ACU por instancia)", "aws_aurora_acu", 0.12, None, "ACU-hora", "=1*730*replicas_bd", 1, F, 0, "",
+     "Escritor + lector en otra AZ. Estado, auditoría y pgvector de Bedrock KB"),
+    ("Aurora PostgreSQL", "Almacenamiento", "aws_aurora_storage", 0.10, None, "GB-mes", "=64", 1, F, 0, "", "Compartido entre instancias"),
+    ("Bedrock Knowledge Bases", "Embeddings Titan Text v2", None, 0.00002, None, "1K tokens", "=tok_embed_mes/1000", 1, F, 0, AWSP.format("bedrock"), ""),
+    ("OpenSearch Serverless (alternativa)", "OCU-hora (mín. 2 × 0,5 OCU)", None, 0.24, None, "OCU-hora", "=730", 0, F, 0,
+     AWSP.format("opensearch-service"), "No incluido: mínimo desproporcionado para pocos SOP"),
+    ("S3 — bucket de imágenes", "Standard", "aws_s3_std", 0.023, None, "GB-mes", IMG_HOT, 1, E_, 1, "", "Lifecycle: Standard→IA día 30"),
+    ("S3 — bucket de imágenes", "Standard-IA", "aws_s3_ia", 0.0125, None, "GB-mes", IMG_COOL, 1, E_, 1, "", "IA→Deep Archive día 180"),
+    ("S3 — bucket de imágenes", "Glacier Deep Archive", "aws_s3_gda", 0.00099, None, "GB-mes", IMG_ARCH, 1, E_, 1, "", "Expira a 3 años"),
+    ("S3 — bucket de imágenes", "Solicitudes y recuperaciones (aprox.)", None, 5, None, "mes", "=estaciones", 1, E_, 0, AWSP.format("s3"), ""),
+    ("S3 — bucket de auditoría (Object Lock)", "Standard", "aws_s3_std", 0.023, None, "GB-mes", "=gb_auditoria", 1, F, 0, "", "S3 Standard ya replica en ≥3 AZ"),
     "Borde y dispositivos",
-    ("AWS IoT Core", "Mensajería", 0.000001, "mensaje", "=msgs_dia_estacion*estaciones*dias_mes", 1, "Por estación", E, AWS_P.format("iot-core"), "1 USD por millón de mensajes"),
-    ("AWS IoT Core", "Conectividad", 0.00000008, "minuto-conexión", "=43800*estaciones", 1, "Por estación", E, AWS_P.format("iot-core"), "0,08 USD por millón de minutos"),
-    ("AWS IoT Greengrass V2", "Dispositivo core activo", 0.16, "dispositivo-mes", "=estaciones", 1, "Por estación", E, AWS_P.format("greengrass"), ""),
-    ("AWS Systems Manager (instancia híbrida avanzada)", "Por PC industrial", 0.00695, "hora", "=730*estaciones", 1, "Por estación", E, AWS_P.format("systems-manager"),
-     "Parches/inventario/sesiones del PC de borde"),
+    ("IoT Core", "Mensajería", "aws_iot_msg", 0.000001, None, "mensaje", "=msgs_dia_estacion*estaciones*dias_mes", 1, E_, 0, "",
+     "Telemetría + avisos; las imágenes van a S3 por Stream Manager"),
+    ("IoT Core", "Conectividad", "aws_iot_conn", 0.00000008, None, "minuto", "=43800*estaciones", 1, E_, 0, "", ""),
+    ("IoT Greengrass V2", "Dispositivo core activo", "aws_greengrass", 0.16, None, "dispositivo-mes", "=estaciones", 1, E_, 0, "", ""),
+    ("Systems Manager (instancia híbrida avanzada)", "Por PC industrial", None, 0.00695, None, "hora", "=730*estaciones", 1, E_, 0,
+     AWSP.format("systems-manager"), ""),
     "Seguridad, red y observabilidad",
-    ("AWS Secrets Manager", "Secreto", 0.40, "secreto-mes", "=8", 1, "Plataforma fija", E, AWS_P.format("secrets-manager"), "8 secretos (BD, tokens, certificados)"),
-    ("VPC Interface Endpoints (PrivateLink)", "Endpoint-AZ", 0.01, "hora", "=5*2*730", 1, "Plataforma fija", E, "https://aws.amazon.com/privatelink/pricing/",
-     "5 endpoints (Bedrock, S3 gateway gratis aparte, Secrets, ECR, Logs) × 2 AZ"),
-    ("Amazon CloudWatch Logs", "Ingesta", 0.50, "GB", "=gb_logs_mes", 1, "Plataforma fija", E, AWS_P.format("cloudwatch"), ""),
-    ("Amazon GuardDuty", "Cuenta pequeña (CloudTrail, S3, runtime ECS)", 15, "mes", "=1", 1, "Plataforma fija", E, AWS_P.format("guardduty"), "Estimación según volumen de eventos"),
-    ("AWS WAF (opcional)", "Web ACL + reglas", 10, "mes", "=1", 0, "Plataforma fija", E, AWS_P.format("waf"), "Solo si el chat se expone fuera de la red corporativa"),
+    ("Secrets Manager", "Secreto", "aws_secrets", 0.40, None, "secreto-mes", "=8", 1, F, 0, "", ""),
+    ("VPC Interface Endpoints", "Endpoint-AZ", "aws_vpce_hr", 0.01, None, "hora", "=5*2*730", 1, F, 0, "", "5 endpoints × 2 AZ"),
+    ("CloudWatch Logs", "Ingesta (Standard)", "aws_cw_logs", 0.50, None, "GB", "=gb_logs_mes", 1, F, 0, "", ""),
+    ("GuardDuty", "Cuenta pequeña", None, 15, None, "mes", "=1", 1, F, 0, AWSP.format("guardduty"), "Depende del volumen de eventos"),
+    ("AWS WAF (opcional)", "Web ACL + reglas", None, 10, None, "mes", "=1", 0, F, 0, AWSP.format("waf"), ""),
     "Asistente agéntico (LLM)",
-    ("Amazon Bedrock", "Claude Haiku 4.5 · entrada", 0.001, "1K tokens", SMALL_IN_FRESH, 1, "LLM", E, AWS_P.format("bedrock"), "Modelo por defecto (85%)"),
-    ("Amazon Bedrock", "Claude Haiku 4.5 · lectura de caché", 0.0001, "1K tokens", SMALL_IN_CACHE, 1, "LLM", E, AWS_P.format("bedrock"),
-     "Prompt caching explícito (escritura en caché ~1,25× no modelada)"),
-    ("Amazon Bedrock", "Claude Haiku 4.5 · salida", 0.005, "1K tokens", SMALL_OUT, 1, "LLM", E, AWS_P.format("bedrock"), ""),
-    ("Amazon Bedrock", "Claude Sonnet 4.5 · entrada", 0.003, "1K tokens", BIG_IN_FRESH, 1, "LLM", E, AWS_P.format("bedrock"), "Modelo grande (15%)"),
-    ("Amazon Bedrock", "Claude Sonnet 4.5 · lectura de caché", 0.0003, "1K tokens", BIG_IN_CACHE, 1, "LLM", E, AWS_P.format("bedrock"), ""),
-    ("Amazon Bedrock", "Claude Sonnet 4.5 · salida", 0.015, "1K tokens", BIG_OUT, 1, "LLM", E, AWS_P.format("bedrock"), ""),
+    ("Bedrock", "Claude Haiku 4.5 · entrada", None, 0.001, None, "1K tokens", SMALL_IN, 1, L, 0, AWSP.format("bedrock"), "85%"),
+    ("Bedrock", "Claude Haiku 4.5 · lectura de caché", None, 0.0001, None, "1K tokens", SMALL_CA, 1, L, 0, AWSP.format("bedrock"),
+     "Escritura en caché (~1,25×) no modelada"),
+    ("Bedrock", "Claude Haiku 4.5 · salida", None, 0.005, None, "1K tokens", SMALL_OUT, 1, L, 0, AWSP.format("bedrock"), ""),
+    ("Bedrock", "Claude Sonnet 4.5 · entrada", None, 0.003, None, "1K tokens", BIG_IN, 1, L, 0, AWSP.format("bedrock"), "15%"),
+    ("Bedrock", "Claude Sonnet 4.5 · lectura de caché", None, 0.0003, None, "1K tokens", BIG_CA, 1, L, 0, AWSP.format("bedrock"), ""),
+    ("Bedrock", "Claude Sonnet 4.5 · salida", None, 0.015, None, "1K tokens", BIG_OUT, 1, L, 0, AWSP.format("bedrock"), ""),
 ]
 
 cloud_sheet(
-    "Azure — costo mensual por servicio",
-    "Región de referencia: East US 2 (precios de la API pública de Azure, " + FECHA + "). Para plantas en España usar Spain Central / West Europe: "
-    "precios ~10-40% mayores según servicio (p. ej. Container Apps vCPU 0,000034 vs 0,000024 USD/s). Precio × cantidad × incluir = costo. "
-    "Filas 'Estimado' (naranja) deben verificarse.",
-    AZURE,
     "Azure",
+    f"Precios de la Azure Retail Prices API consultados el {FECHA}: East US 2 (escenario Colombia) y Spain Central "
+    "(escenario España). 'API verificada' = medidor exacto encontrado (ver hoja Fuentes); 'Estimado' (naranja) = "
+    "referencia sin medidor localizado. Costo = precio × cantidad × incluir.",
+    AZURE,
 )
 cloud_sheet(
-    "AWS — costo mensual por servicio",
-    "Región de referencia: us-east-1. Precios de lista públicos tomados de las páginas de precios de AWS conocidas a " + FECHA + "; "
-    "NO verificados contra la API de precios en esta entrega → todos marcados 'Estimado'. Para España usar eu-south-2 (Spain).",
-    AWS,
     "AWS",
+    f"Precios de la AWS Price List Bulk API consultados el {FECHA}: us-east-1 (Colombia) y eu-south-2 Spain (España). "
+    "Bedrock (Claude), NAT Gateway, GuardDuty y SSM son 'Estimado' (no localizados por usagetype). Para la UE, Bedrock "
+    "se asume igual a EE. UU. ajustado por el factor UE.",
+    AWS,
 )
 
 # ============================================================ COMPARATIVO
@@ -422,139 +622,151 @@ cmp_ = wb.create_sheet("Comparativo")
 title(
     cmp_,
     "Comparativo: operación actual vs Azure vs AWS",
-    "USD. El costo 'nuevo' = nube + mantenimiento de borde + trabajo humano residual (cola de revisión + supervisión itinerante). "
-    "El robot ya existe en ambos escenarios y no se incluye.",
+    "USD/mes. Colombia usa precios de región EE. UU.; España usa precios de región UE-España. "
+    "Costo nuevo = nube + mantenimiento de borde + humano residual. El robot existe en ambos escenarios.",
     5,
 )
 header(cmp_, 4, ["Concepto", "Colombia · Azure", "Colombia · AWS", "España · Azure", "España · AWS"])
-COLS = {"B": ("co", "azure"), "C": ("co", "aws"), "D": ("es", "azure"), "E": ("es", "aws")}
+COLS = {"B": ("co", "azure", ""), "C": ("co", "aws", ""), "D": ("es", "azure", "_ue"), "E": ("es", "aws", "_ue")}
 CMP = [
-    ("Costo mensual operación actual", lambda s, c: f"=actual_mes_{s}", USD0),
-    ("Nube: plataforma fija", lambda s, c: f"={c}_fijo_mes*plantas", USD0),
-    ("Nube: por estaciones", lambda s, c: f"={c}_estacion_total_mes*plantas", USD0),
-    ("Nube: LLM del asistente", lambda s, c: f"={c}_llm_mes*plantas", USD0),
-    ("Mantenimiento hardware de borde", lambda s, c: "=estaciones*plantas*(capex_pc+capex_camara)*pct_mant_hw/12", USD0),
-    ("Humano residual: cola de revisión", lambda s, c: f"=estaciones*plantas*throughput_obj_h*horas_mes*(1-pct_automatizado)*min_caso_revision/60*costo_hora_{s}", USD0),
-    ("Humano residual: supervisión itinerante", lambda s, c: f"=estaciones*plantas*fte_residual*horas_mes*factor_cobertura*costo_hora_{s}", USD0),
-    ("COSTO MENSUAL NUEVO", lambda s, c: "=SUM({col}6:{col}11)", USD0),
-    ("AHORRO MENSUAL", lambda s, c: "={col}5-{col}12", USD0),
-    ("Ahorro mensual (%)", lambda s, c: "=IF({col}5>0,{col}13/{col}5,0)", PCT),
-    ("Costo anual actual", lambda s, c: "={col}5*12", USD0),
-    ("Costo anual nuevo (OPEX)", lambda s, c: "={col}12*12", USD0),
-    ("CAPEX único (borde + integración + implementación)", lambda s, c: "=estaciones*plantas*(capex_pc+capex_camara+capex_integracion)+capex_planta*plantas", USD0),
-    ("Payback (meses)", lambda s, c: '=IF({col}13>0,{col}17/{col}13,"No recupera")', NUM),
-    ("Ahorro neto a 3 años (36 × ahorro − CAPEX)", lambda s, c: "=36*{col}13-{col}17", USD0),
-    ("Costo nube por objeto procesado (USD)", lambda s, c: "=SUM({col}6:{col}8)/(throughput_obj_h*horas_mes*estaciones*plantas)", "0.00000"),
-    ("Humano residual / costo actual (%)", lambda s, c: "=({col}10+{col}11)/{col}5", PCT),
+    ("Costo mensual operación actual", lambda s, c, u: f"=actual_mes_{s}", USD0),
+    ("Nube: plataforma fija", lambda s, c, u: f"={c}_fijo_mes{u}*plantas", USD0),
+    ("Nube: por estaciones", lambda s, c, u: f"={c}_estacion_total_mes{u}*plantas", USD0),
+    ("Nube: LLM del asistente", lambda s, c, u: f"={c}_llm_mes{u}*plantas", USD0),
+    ("Mantenimiento hardware de borde", lambda s, c, u: "=estaciones*plantas*(capex_pc+capex_camara)*pct_mant_hw/12", USD0),
+    ("Humano residual: cola de revisión", lambda s, c, u: f"=estaciones*plantas*throughput_obj_h*horas_mes*(1-pct_automatizado)*min_caso_revision/60*costo_hora_{s}", USD0),
+    ("Humano residual: atención itinerante", lambda s, c, u: f"=estaciones*plantas*fraccion_atencion*horas_mes*factor_cobertura*costo_hora_{s}", USD0),
+    ("COSTO MENSUAL NUEVO", lambda s, c, u: "=SUM({col}6:{col}11)", USD0),
+    ("AHORRO MENSUAL", lambda s, c, u: "={col}5-{col}12", USD0),
+    ("Ahorro mensual (%)", lambda s, c, u: "=IF({col}5>0,{col}13/{col}5,0)", PCT),
+    ("Costo anual actual", lambda s, c, u: "={col}5*12", USD0),
+    ("Costo anual nuevo (OPEX)", lambda s, c, u: "={col}12*12", USD0),
+    ("CAPEX único (borde + integración + implementación)", lambda s, c, u: "=estaciones*plantas*(capex_pc+capex_camara+capex_integracion)+capex_planta*plantas", USD0),
+    ("Payback (meses)", lambda s, c, u: '=IF({col}13>0,{col}17/{col}13,"No recupera")', NUM),
+    ("Ahorro neto a 3 años (36 × ahorro − CAPEX)", lambda s, c, u: "=36*{col}13-{col}17", USD0),
+    ("Costo nube por objeto procesado (USD)", lambda s, c, u: "=SUM({col}6:{col}8)/(throughput_obj_h*horas_mes*estaciones*plantas)", "0.00000"),
+    ("Humano residual / costo actual (%)", lambda s, c, u: "=({col}10+{col}11)/{col}5", PCT),
 ]
 for i, (lbl, fn, fmt) in enumerate(CMP, start=5):
     cmp_.cell(row=i, column=1, value=lbl)
-    for col, (s, c) in COLS.items():
-        f = fn(s, c).replace("{col}", col)
+    for col, (s, c, u) in COLS.items():
         cell = cmp_[f"{col}{i}"]
-        cell.value = f
+        cell.value = fn(s, c, u).replace("{col}", col)
         cell.number_format = fmt
         cell.border = BOX
     if lbl.isupper():
         for col in "ABCDE":
             cmp_[f"{col}{i}"].font = BOLD
             cmp_[f"{col}{i}"].fill = FILL_TOT
-widths(cmp_, [50, 18, 18, 18, 18])
 r = 5 + len(CMP) + 1
-notes = [
+cmp_.cell(row=r, column=1, value="Diferencia de nube Azure − AWS / ahorro mensual Azure").font = BOLD
+cmp_[f"B{r}"] = f"=(SUM(B6:B8)-SUM(C6:C8))/B13"
+cmp_[f"D{r}"] = f"=(SUM(D6:D8)-SUM(E6:E8))/D13"
+for col in "BD":
+    cmp_[f"{col}{r}"].number_format = PCT
+r += 2
+for n in [
     "Lectura rápida:",
     "• El ahorro viene de retirar 3 turnos de operador por estación; la nube es una fracción pequeña del costo laboral evitado.",
     "• El factor que más mueve el resultado es % automatizado (cola de revisión) y el costo laboral local, no el proveedor de nube.",
-    "• Con 1 estación en Colombia el payback es largo porque el CAPEX de implementación por planta pesa mucho; ver Sensibilidad (5 y 20 estaciones).",
+    "• Con 1 estación en Colombia el payback es largo: el CAPEX de implementación por planta pesa mucho (ver Sensibilidad).",
     "• Ningún número de esta hoja está hardcodeado: todo sale de Supuestos, Operación actual, Azure y AWS.",
-]
-for n in notes:
-    cmp_.cell(row=r, column=1, value=n).alignment = Alignment(wrap_text=False)
+]:
+    cmp_.cell(row=r, column=1, value=n)
     r += 1
+widths(cmp_, [56, 18, 18, 18, 18])
 
 # ============================================================ SENSIBILIDAD
 sen = wb.create_sheet("Sensibilidad")
-title(sen, "Sensibilidad", "Celdas azules de la primera columna son editables. Todo lo demás se recalcula desde Supuestos y las hojas de nube (Azure como referencia salvo que se indique).", 7)
+title(sen, "Sensibilidad", "Celdas azules de la primera columna son editables. Todo lo demás se recalcula desde Supuestos y las "
+      "hojas de nube (Azure; Colombia con precios EE. UU., España con precios UE).", 7)
 
-# Tabla 1: % automatizado
-sen["A4"] = "1) % automatizado (con las estaciones de Supuestos) — Azure"
+sen["A4"] = "1) % automatizado (estaciones de Supuestos) — Azure. El almacenamiento de imágenes también escala con el %."
 sen["A4"].font = BOLD
-header(sen, 5, ["% automatizado", "Residual cola CO (USD/mes)", "Ahorro CO (USD/mes)", "Payback CO (meses)", "Residual cola ES (USD/mes)", "Ahorro ES (USD/mes)", "Payback ES (meses)"])
-NUBE_AZ = "(azure_fijo_mes+azure_estacion_total_mes+azure_llm_mes)*plantas"
+header(sen, 5, ["% automatizado", "Residual cola CO", "Ahorro CO", "Payback CO (meses)", "Residual cola ES", "Ahorro ES", "Payback ES (meses)"])
 MANT = "estaciones*plantas*(capex_pc+capex_camara)*pct_mant_hw/12"
-SUPV = "estaciones*plantas*fte_residual*horas_mes*factor_cobertura*costo_hora_{s}"
 CAPEX = "(estaciones*plantas*(capex_pc+capex_camara+capex_integracion)+capex_planta*plantas)"
 for i, p in enumerate([0.80, 0.90, 0.95, 0.99], start=6):
     c = sen.cell(row=i, column=1, value=p)
     c.number_format = PCT
     c.font = BLUE
     c.fill = FILL_IN
-    for base, s in ((2, "co"), (5, "es")):
-        L = get_column_letter(base)
+    for base, s, u in ((2, "co", ""), (5, "es", "_ue")):
+        Lr = get_column_letter(base)
         A = get_column_letter(base + 1)
+        nube = (f"(azure_total_mes{u}-azure_img_mes{u}+azure_img_mes{u}*((1-$A{i})+$A{i}*muestreo_act)/pct_subidas)*plantas")
+        supv = f"estaciones*plantas*fraccion_atencion*horas_mes*factor_cobertura*costo_hora_{s}"
         sen.cell(row=i, column=base, value=f"=estaciones*plantas*throughput_obj_h*horas_mes*(1-$A{i})*min_caso_revision/60*costo_hora_{s}").number_format = USD0
-        sen.cell(row=i, column=base + 1, value=f"=actual_mes_{s}-({NUBE_AZ}+{MANT}+{L}{i}+{SUPV.format(s=s)})").number_format = USD0
+        sen.cell(row=i, column=base + 1, value=f"=actual_mes_{s}-({nube}+{MANT}+{Lr}{i}+{supv})").number_format = USD0
         sen.cell(row=i, column=base + 2, value=f'=IF({A}{i}>0,{CAPEX}/{A}{i},"No recupera")').number_format = NUM
 
-# Tabla 2: estaciones
-sen["A12"] = "2) Número de estaciones por planta (con % automatizado de Supuestos) — Azure"
+sen["A12"] = "2) Estaciones por planta (% automatizado de Supuestos) — Azure"
 sen["A12"].font = BOLD
 header(sen, 13, ["Estaciones", "Costo actual CO", "Costo nuevo CO", "Payback CO (meses)", "Costo actual ES", "Costo nuevo ES", "Payback ES (meses)"])
 for i, n in enumerate([1, 5, 20], start=14):
     c = sen.cell(row=i, column=1, value=n)
     c.font = BLUE
     c.fill = FILL_IN
-    for base, s in ((2, "co"), (5, "es")):
+    for base, s, u in ((2, "co", ""), (5, "es", "_ue")):
         A = get_column_letter(base)
         N = get_column_letter(base + 1)
         sen.cell(row=i, column=base, value=f"=actual_estacion_{s}*$A{i}*plantas").number_format = USD0
-        nube = f"(azure_fijo_mes+azure_por_estacion_mes*$A{i}+azure_llm_por_conv*(conv_dia_base+conv_dia_estacion*$A{i})*dias_mes)*plantas"
-        resid = (
-            f"$A{i}*plantas*(throughput_obj_h*horas_mes*(1-pct_automatizado)*min_caso_revision/60*costo_hora_{s}"
-            f"+fte_residual*horas_mes*factor_cobertura*costo_hora_{s}+(capex_pc+capex_camara)*pct_mant_hw/12)"
-        )
+        nube = (f"(azure_fijo_mes{u}+azure_por_estacion_mes{u}*$A{i}"
+                f"+azure_llm_por_conv{u}*(conv_dia_base+conv_dia_estacion*$A{i})*dias_mes)*plantas")
+        resid = (f"$A{i}*plantas*(throughput_obj_h*horas_mes*(1-pct_automatizado)*min_caso_revision/60*costo_hora_{s}"
+                 f"+fraccion_atencion*horas_mes*factor_cobertura*costo_hora_{s}+(capex_pc+capex_camara)*pct_mant_hw/12)")
         sen.cell(row=i, column=base + 1, value=f"={nube}+{resid}").number_format = USD0
         capex = f"($A{i}*(capex_pc+capex_camara+capex_integracion)+capex_planta)*plantas"
         sen.cell(row=i, column=base + 2, value=f'=IF({A}{i}>{N}{i},{capex}/({A}{i}-{N}{i}),"No recupera")').number_format = NUM
 
-# Tabla 3: conversaciones LLM
-sen["A19"] = "3) Volumen del asistente: costo LLM mensual por planta"
+sen["A19"] = "3) Volumen del asistente: costo LLM mensual por planta (precios EE. UU.)"
 sen["A19"].font = BOLD
-header(sen, 20, ["Conversaciones/día", "Azure LLM (USD/mes)", "AWS LLM (USD/mes)", "Azure LLM si todo va al modelo grande", "Peso LLM Azure en nube total", "", ""])
+header(sen, 20, ["Conversaciones/día", "Azure LLM (USD/mes)", "AWS LLM (USD/mes)", "Azure si todo va a gpt-4.1", "Peso LLM en nube Azure", "", ""])
 for i, n in enumerate([20, 60, 200, 1000], start=21):
     c = sen.cell(row=i, column=1, value=n)
     c.font = BLUE
     c.fill = FILL_IN
     sen.cell(row=i, column=2, value=f"=azure_llm_por_conv*$A{i}*dias_mes").number_format = USD0
     sen.cell(row=i, column=3, value=f"=aws_llm_por_conv*$A{i}*dias_mes").number_format = USD0
-    big_conv = "(tok_in_conv*((1-pct_cache)*0.0022+pct_cache*0.00055)+tok_out_conv*0.0088)/1000"
-    sen.cell(row=i, column=4, value=f"={big_conv}*$A{i}*dias_mes").number_format = USD0
+    big = "(tok_in_conv*((1-pct_cache)*azure_big_in+pct_cache*azure_big_cache)+tok_out_conv*azure_big_out)/1000"
+    sen.cell(row=i, column=4, value=f"={big}*$A{i}*dias_mes").number_format = USD0
     sen.cell(row=i, column=5, value=f"=B{i}/(azure_fijo_mes+azure_estacion_total_mes+B{i})").number_format = PCT
-sen["A26"] = "Nota tabla 3: la columna 'todo al modelo grande' usa los precios gpt-4.1 Data Zone de la hoja Azure (estimados) y muestra el valor del enrutamiento a modelo pequeño."
-widths(sen, [20, 22, 20, 22, 22, 20, 20])
+sen["A26"] = "La columna 'todo a gpt-4.1' usa las celdas de precio gpt-4.1 de la hoja Azure (rangos azure_big_*)."
+widths(sen, [20, 22, 20, 24, 22, 20, 20])
 
 # ============================================================ FUENTES
 src = wb.create_sheet("Fuentes")
-title(src, "Fuentes y método", "", 2)
-FUENTES = [
-    ("API de precios minoristas de Azure", "https://prices.azure.com/api/retail/prices — consultada " + FECHA + " con filtros por serviceName/meterName, región eastus2, priceType=Consumption"),
-    ("Calculadora Azure", "https://azure.microsoft.com/pricing/calculator/"),
-    ("Precios Azure OpenAI", AOAI),
-    ("Calculadora AWS", "https://calculator.aws/"),
-    ("Precios Bedrock", "https://aws.amazon.com/bedrock/pricing/"),
-    ("Precios Fargate", "https://aws.amazon.com/fargate/pricing/"),
-    ("Precios S3", "https://aws.amazon.com/s3/pricing/"),
+title(src, "Fuentes, trazas de consulta y método",
+      f"Snapshot: docs/cloud/precios_snapshot.json (fecha {FECHA}). Regenerar con "
+      "`uv run python scripts/build_finops.py --refresh-prices`. Cada fila es una consulta reproducible.", 9)
+header(src, 4, ["Clave", "Región", "Precio USD", "Unidad", "Medidor / usagetype", "SKU / id", "Producto / oferta", "Fecha", "Consulta"])
+r = 5
+for key in PRICE_SPECS:
+    for reg in REGIONS:
+        p = price(key, reg)
+        if p:
+            vals = [key, p["region"], p["price"], p["unit"], p["meter"], p.get("meter_id") or p.get("sku"), p["product"], p.get("fecha"), p["query"]]
+        else:
+            vals = [key, REGIONS[reg]["label"], None, None, "NO ENCONTRADO → se usa valor 'Estimado'", None, None, FECHA, None]
+        for ci, v in enumerate(vals, start=1):
+            src.cell(row=r, column=ci, value=v)
+        src.cell(row=r, column=9).alignment = Alignment(wrap_text=False)
+        r += 1
+r += 1
+for k, v in [
+    ("Método", "Precio unitario × cantidad mensual × incluir. Precios de lista sin descuentos (EA/MACC/EDP), sin reservas ni impuestos."),
+    ("Estimados", "Bedrock (Claude Haiku 4.5 $1/$5 y Sonnet 4.5 $3/$15 por 1M tokens según https://aws.amazon.com/bedrock/pricing/), NAT Gateway, "
+     "GuardDuty, SSM, Private Endpoints de PaaS en Azure, Defender for Storage, transacciones de almacenamiento."),
+    ("Limitaciones", "No incluye egress de red, soporte (Developer/Business), ni licencias corporativas existentes."),
     ("SMMLV Colombia 2025", "Decreto 1572 de 2024 (1.423.500 COP)"),
+    ("Jornada Colombia", "Ley 2101 de 2021; 42 h/semana desde el 15-jul-2026 (https://normativa.colpensiones.gov.co/compilacion/docs/circular_mintra_0101_2025.htm)"),
     ("Recargo nocturno Colombia", "Código Sustantivo del Trabajo, art. 168"),
-    ("Método", "Precio unitario × cantidad mensual × incluir. Cantidades derivadas de Supuestos. Precios de lista sin descuentos EA/MACC/EDP, sin reservas ni impuestos."),
-    ("Limitaciones", "Precios AWS y algunos de Azure son estimados (columna 'Estado'). No incluye egress de red, soporte (Developer/Business) ni licencias corporativas existentes."),
-]
-for i, (k, v) in enumerate(FUENTES, start=4):
-    src.cell(row=i, column=1, value=k).font = BOLD
-    src.cell(row=i, column=2, value=v).alignment = WRAP
-widths(src, [34, 120])
+]:
+    src.cell(row=r, column=1, value=k).font = BOLD
+    src.cell(row=r, column=2, value=v)
+    r += 1
+widths(src, [22, 14, 12, 12, 40, 38, 40, 12, 120])
 
-# Orden de hojas pedido
 wb._sheets = [wb[n] for n in ["Supuestos", "Operación actual", "Azure", "AWS", "Comparativo", "Sensibilidad", "Fuentes"]]
 OUT.parent.mkdir(parents=True, exist_ok=True)
 wb.save(OUT)

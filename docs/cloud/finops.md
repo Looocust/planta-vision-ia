@@ -7,30 +7,38 @@ Modelo con fórmulas vivas: [`finops_model.xlsx`](finops_model.xlsx) — se rege
 
 | Hoja | Contenido |
 |---|---|
-| **Supuestos** | Todas las entradas (celdas amarillas). Cada una con unidad, tipo (*Supuesto* / *Referencia* / *Calculado*), fuente y fecha. Tienen nombre definido (p. ej. `pct_automatizado`) para que las fórmulas se lean solas |
-| **Operación actual** | Costo del operador por estación: horas 24×5 × factor de cobertura × costo cargado/hora, en Colombia y España |
-| **Azure** / **AWS** | Una fila por servicio: precio unitario × cantidad mensual (fórmula) × incluir (1/0). Columna *Estado*: **API verificada** (Azure Retail Prices API, 2026-10-24) o **Estimado** (resaltado) |
-| **Comparativo** | Actual vs Azure vs AWS en ambos países: OPEX nuevo (nube + mantenimiento de borde + humano residual), ahorro, CAPEX, payback, ahorro neto a 3 años |
-| **Sensibilidad** | % automatizado 80/90/95/99, estaciones 1/5/20, conversaciones/día 20/60/200/1000 |
-| **Fuentes** | URLs, método y limitaciones |
+| **Supuestos** | Todas las entradas (celdas amarillas) con unidad, tipo (*Supuesto* / *Placeholder* / *Referencia* / *Calculado*), fuente y fecha. Nombres definidos (p. ej. `pct_automatizado`) para que las fórmulas se lean solas |
+| **Operación actual** | Costo del operador por estación: horas 24×5 × factor de cobertura × costo cargado/hora, Colombia y España |
+| **Azure** / **AWS** | Una fila por servicio con **dos precios por región**: EE. UU. (East US 2 / us-east-1 → escenario Colombia) y UE-España (Spain Central / eu-south-2 → escenario España). Costo = precio × cantidad × incluir. Columna *Estado*: **API verificada** o **Estimado** (resaltado) |
+| **Comparativo** | Actual vs Azure vs AWS en ambos países, cada país con los precios de su región: OPEX nuevo (nube + mantenimiento de borde + humano residual), ahorro, CAPEX, payback, ahorro neto a 3 años |
+| **Sensibilidad** | % automatizado 80/90/95/99 (también escala el almacenamiento de imágenes), estaciones 1/5/20, conversaciones/día 20/60/200/1000 (la columna "todo al modelo grande" lee las celdas de precio gpt-4.1) |
+| **Fuentes** | Una fila por consulta de precio: clave, región, precio, unidad, **medidor / usagetype**, id de medidor o SKU, producto, fecha y la **URL de consulta exacta**. Snapshot en `docs/cloud/precios_snapshot.json` |
 
-`pct_automatizado` es un **placeholder (95%)** que debe reemplazarse por la cobertura ACT medida del modelo (reporte).
+`pct_automatizado` es un **placeholder (95%) sin evidencia**: debe reemplazarse por la cobertura ACT medida del modelo.
+`fraccion_atencion` es la fracción de las horas de operación de la estación que todavía requiere a una persona
+(10% → ≈ 60 h pagadas/mes con cobertura); no es un FTE.
 
-## 2. Resultados con los supuestos base (1 planta)
+**Trazabilidad de precios:** `uv run python scripts/build_finops.py --refresh-prices` vuelve a consultar la Azure Retail
+Prices API y la AWS Price List Bulk API (públicas, sin credenciales) y regenera el snapshot y el libro. Precios sin medidor
+localizado quedan como "Estimado": Bedrock (Claude), NAT Gateway, GuardDuty, SSM, Private Endpoints de PaaS en Azure,
+Defender for Storage y transacciones de almacenamiento. Para la UE, si no hay precio verificado se aplica `uplift_ue` (×1,10).
 
-**Qué es supuesto y qué no:** los costos laborales, throughput, CAPEX, % automatizado y volúmenes del agente son
-**supuestos** del candidato (editables). Los precios de Azure marcados "API verificada" son **precios de lista
-reales** de East US 2; los de AWS y algunos de Azure son **estimados**.
+## 2. Resultados con los supuestos base (1 planta, 1 estación)
 
-| (USD/mes salvo indicación) | Colombia · Azure | Colombia · AWS | España · Azure | España · AWS |
+**Qué es supuesto y qué no:** costos laborales, throughput, CAPEX, % automatizado y volúmenes del agente son
+**supuestos** editables. Los precios de nube marcados "API verificada" son **precios de lista reales** consultados el
+2026-10-24. Colombia usa jornada de 42 h/semana (vigente desde el 15-jul-2026).
+
+| USD/mes salvo indicación | Colombia · Azure | Colombia · AWS | España · Azure | España · AWS |
 |---|---|---|---|---|
-| Operación actual (1 estación) | 2.381 | 2.381 | 12.283 | 12.283 |
-| Nube total | 519 | 397 | 519 | 397 |
-| Humano residual (cola + supervisión) | 756 | 756 | 3.899 | 3.899 |
-| Costo mensual nuevo | 1.320 | 1.198 | 4.463 | 4.341 |
-| **Ahorro mensual** | **1.061 (45%)** | **1.183 (50%)** | **7.820 (64%)** | **7.942 (65%)** |
+| Región de precios | East US 2 | us-east-1 | Spain Central | eu-south-2 |
+| Operación actual | 2.485 | 2.485 | 12.283 | 12.283 |
+| Nube total | 637 | 410 | 741 | 464 |
+| Humano residual (cola + atención itinerante) | 789 | 789 | 3.899 | 3.899 |
+| Costo mensual nuevo | 1.472 | 1.245 | 4.685 | 4.408 |
+| **Ahorro mensual** | **1.013 (41%)** | **1.241 (50%)** | **7.598 (62%)** | **7.875 (64%)** |
 | CAPEX (1 estación + implementación) | 50.500 | 50.500 | 50.500 | 50.500 |
-| **Payback** | **≈ 48 meses** | ≈ 43 meses | **≈ 6,5 meses** | ≈ 6,4 meses |
+| **Payback** | **≈ 50 meses** | ≈ 41 meses | **≈ 6,6 meses** | ≈ 6,4 meses |
 
 **Sensibilidad (Azure):**
 
@@ -38,17 +46,16 @@ reales** de East US 2; los de AWS y algunos de Azure son **estimados**.
 |---|---|---|
 | Payback con 5 estaciones | ≈ 18 meses | ≈ 3,2 meses |
 | Payback con 20 estaciones | ≈ 14 meses | ≈ 2,7 meses |
-| Ahorro mensual con 80% automatizado (1 estación) | **negativo** (−492) | **negativo** (−191) |
-| Ahorro mensual con 99% automatizado (1 estación) | 1.475 | 9.956 |
+| Ahorro mensual con 80% automatizado (1 estación) | **negativo** (−608) | **negativo** (−413) |
+| Ahorro mensual con 99% automatizado (1 estación) | 1.446 | 9.735 |
 
 **Mensajes para defender:**
-1. La nube cuesta **~USD 0,0017 por objeto**; el gasto LLM (~USD 20/mes) es irrelevante frente a la mano de obra.
+1. La nube cuesta **~USD 0,002 por objeto**; el gasto LLM (~USD 20/mes) es irrelevante frente a la mano de obra.
 2. El caso de negocio **depende de la tasa de automatización**: con 80% la cola de revisión consume casi un operador
-   y el proyecto no se paga. Por eso el sistema optimiza ACT *seguro* y mide la cobertura con rigor.
-3. En **Colombia** una estación sola no se justifica (48 meses); el caso existe **a escala** (≥ 5 estaciones) porque
-   el costo de implementación por planta se reparte. En **España** se paga en meses incluso con una estación.
-4. El humano residual (supervisión itinerante 0,1 FTE + cola) es ahora **el mayor costo**; reducir minutos por caso
-   (buena UI de revisión, evidencia de vecinos similares) vale más que optimizar la nube.
+   y el proyecto no se paga. Por eso el sistema optimiza ACT *seguro* y la cifra real debe salir del reporte del modelo.
+3. En **Colombia** una estación sola no se justifica (≈ 50 meses) y la diferencia Azure-AWS (≈ 22% del ahorro) sí
+   importa: hay que recortar el diseño del piloto. El caso existe **a escala** (≥ 5 estaciones). En **España** se paga en meses.
+4. El humano residual es ahora **el mayor costo**; reducir minutos por caso vale más que optimizar la nube.
 
 ## 3. Prácticas FinOps
 

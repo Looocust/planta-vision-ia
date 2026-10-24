@@ -1,8 +1,9 @@
 # Levanta visión (8001) y agente (8002) con una sola imagen.
 #   cp .env.example .env   # y completar GOOGLE_API_KEY
 #   make up-docker
-# Requisitos previos en el host: dataset en data/raw y modelo en models/
-# (make data && make train), que se montan como volúmenes.
+# Requisitos previos en el host: dataset en data/raw/coil-100 y modelo completo en
+# models/vision-1.0.0 (metadata.json + model.joblib): make data && make train.
+# Healthcheck = /health con status "ok" ("degraded" = modelo no cargado = no sano).
 # NOTA: no probado en esta máquina (Docker no instalado).
 
 x-common: &common
@@ -27,8 +28,10 @@ services:
     environment:
       ALLOW_FAULT_INJECTION: ${ALLOW_FAULT_INJECTION:-true}
       MODEL_DIR: ${MODEL_DIR:-models/vision-1.0.0}
+      # Carpeta que contiene las imágenes (la API une DATA_DIR + image_id)
+      DATA_DIR: data/raw/coil-100
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8001/health"]
+      test: ["CMD", "python", "-c", "import json,sys,urllib.request; s=json.load(urllib.request.urlopen('http://localhost:8001/health', timeout=3)).get('status'); sys.exit(0 if s == 'ok' else 1)"]
       interval: 10s
       timeout: 3s
       retries: 10
@@ -49,7 +52,7 @@ services:
       vision:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8002/health"]
+      test: ["CMD", "python", "-c", "import json,sys,urllib.request; s=json.load(urllib.request.urlopen('http://localhost:8002/health', timeout=3)).get('status'); sys.exit(0 if s == 'ok' else 1)"]
       interval: 15s
       timeout: 3s
       retries: 10

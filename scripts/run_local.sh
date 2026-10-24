@@ -8,9 +8,10 @@
 # Pasos:
 #   1. uv sync (dependencias bloqueadas por uv.lock)
 #   2. Descarga COIL-100 si falta y verifica su SHA-256
-#   3. Entrena el modelo si no existe models/vision-1.0.0
+#   3. Entrena el modelo si el artefacto models/vision-1.0.0 no está completo
+#      (metadata.json + model.joblib)
 #   4. Arranca la API de visión (8001) y el agente (8002) en segundo plano,
-#      con logs en data/runtime/logs, y espera a que respondan /health
+#      con logs en data/runtime/logs, y espera a que /health devuelva status "ok"
 #   5. Al pulsar Ctrl+C detiene ambos procesos (trap)
 set -euo pipefail
 
@@ -39,15 +40,25 @@ fi
 # El agente llama a los endpoints admin de visión con VISION_ADMIN_TOKEN; por defecto, el mismo ADMIN_TOKEN.
 if [[ -n "${ADMIN_TOKEN:-}" && -z "${VISION_ADMIN_TOKEN:-}" ]]; then export VISION_ADMIN_TOKEN="$ADMIN_TOKEN"; fi
 
-DATA_DIR="${DATA_DIR:-data/raw}"
+# DATA_DIR = carpeta que CONTIENE las imágenes objN__A.png (la API de visión une DATA_DIR + image_id).
+DATA_DIR="${DATA_DIR:-data/raw/coil-100}"
+# Compatibilidad: un .env antiguo con DATA_DIR=data/raw se corrige a data/raw/coil-100.
+if [[ "$(basename "$DATA_DIR")" != "coil-100" ]] && ! ls "$DATA_DIR"/obj1__0.png >/dev/null 2>&1; then
+  printf '[run_local] AVISO: DATA_DIR=%s no contiene imágenes; se usa %s/coil-100\n' "$DATA_DIR" "$DATA_DIR" >&2
+  DATA_DIR="$DATA_DIR/coil-100"
+fi
+export DATA_DIR
+IMG_DIR="$DATA_DIR"
+RAW_DIR="$(dirname "$IMG_DIR")"          # el zip se descarga y descomprime aquí (crea coil-100/)
 MODEL_DIR="${MODEL_DIR:-models/vision-1.0.0}"
+# Archivos que debe tener un artefacto completo (separados por espacio).
+MODEL_REQUIRED_FILES="${MODEL_REQUIRED_FILES:-metadata.json model.joblib}"
 VISION_PORT="${VISION_PORT:-8001}"
 AGENT_PORT="${AGENT_PORT:-8002}"
 LOG_DIR="data/runtime/logs"
 COIL_URL="${COIL_URL:-https://www.cs.columbia.edu/CAVE/databases/SLAM_coil-20_coil-100/coil-100/coil-100.zip}"
 COIL_SHA256="fcb4b8b01c0778f416d8d7a09f45082c4f7075cc74743dcddd5c44307bd4afe7"
-ZIP_PATH="$DATA_DIR/coil-100.zip"
-IMG_DIR="$DATA_DIR/coil-100"
+ZIP_PATH="$RAW_DIR/coil-100.zip"
 EXPECTED_IMAGES=7200
 
 log() { printf '\033[1;34m[run_local]\033[0m %s\n' "$*"; }
@@ -67,7 +78,7 @@ step_sync() {
 }
 
 step_data() {
-  mkdir -p "$DATA_DIR"
+  mkdir -p "$RAW_DIR"
   local n; n="$(count_images)"
   if [[ "$n" -ge "$EXPECTED_IMAGES" ]]; then
     log "Dataset presente: $n imágenes en $IMG_DIR"
@@ -85,22 +96,34 @@ step_data() {
     die "SHA-256 no coincide (esperado $COIL_SHA256, obtenido $got). Archivo movido a $ZIP_PATH.corrupto"
   fi
   log "Descomprimiendo…"
-  unzip -q -o "$ZIP_PATH" -d "$DATA_DIR"
+  unzip -q -o "$ZIP_PATH" -d "$RAW_DIR"
   n="$(count_images)"
   [[ "$n" -ge "$EXPECTED_IMAGES" ]] || die "Se esperaban $EXPECTED_IMAGES imágenes y hay $n en $IMG_DIR"
   log "Dataset listo: $n imágenes"
 }
 
+model_complete() {
+  local f
+  for f in $MODEL_REQUIRED_FILES; do
+    [[ -s "$MODEL_DIR/$f" ]] || { echo "$f"; return 1; }
+  done
+  return 0
+}
+
 step_model() {
-  if [[ -f "$MODEL_DIR/metadata.json" || -f "$MODEL_DIR/model.joblib" || -n "$(ls -A "$MODEL_DIR" 2>/dev/null)" ]]; then
-    log "Modelo presente en $MODEL_DIR"
+  local missing
+  if missing="$(model_complete)"; then
+    log "Modelo completo en $MODEL_DIR ($MODEL_REQUIRED_FILES)"
     return
+  fi
+  if [[ -d "$MODEL_DIR" ]]; then
+    log "Artefacto incompleto en $MODEL_DIR (falta $missing); se reentrena"
   fi
   [[ -f scripts/train_vision.py ]] || die "Falta scripts/train_vision.py para entrenar el modelo"
   log "Entrenando modelo (puede tardar unos minutos)…"
   mkdir -p "$LOG_DIR"
   uv run python scripts/train_vision.py 2>&1 | tee "$LOG_DIR/train.log"
-  [[ -n "$(ls -A "$MODEL_DIR" 2>/dev/null)" ]] || die "El entrenamiento terminó pero no existe $MODEL_DIR"
+  missing="$(model_complete)" || die "El entrenamiento terminó pero falta $MODEL_DIR/$missing"
 }
 
 PIDS=()
@@ -113,19 +136,26 @@ cleanup() {
   fi
 }
 
+# Listo = /health responde 200 Y {"status": "ok"}. "degraded" (p. ej. modelo no cargado) NO cuenta como listo.
+health_status() {
+  curl -fsS --max-time 3 "$1" 2>/dev/null | sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([a-z_]*\)".*/\1/p'
+}
+
 wait_health() {
-  local name="$1" url="$2" timeout="${3:-90}" i=0
-  until curl -fsS "$url" >/dev/null 2>&1; do
+  local name="$1" url="$2" timeout="${3:-90}" i=0 st=""
+  while true; do
+    st="$(health_status "$url" || true)"
+    [[ "$st" == "ok" ]] && break
     i=$((i + 1))
     if [[ $i -ge $timeout ]]; then
-      die "$name no respondió en $url tras ${timeout}s. Revisa $LOG_DIR/${name}.log"
+      die "$name no quedó listo en $url tras ${timeout}s (último status: '${st:-sin respuesta}'). Revisa $LOG_DIR/${name}.log"
     fi
     for pid in "${PIDS[@]}"; do
       kill -0 "$pid" 2>/dev/null || die "$name terminó inesperadamente. Revisa $LOG_DIR/${name}.log"
     done
     sleep 1
   done
-  log "$name OK → $url"
+  log "$name listo (status=ok) → $url"
 }
 
 step_services() {

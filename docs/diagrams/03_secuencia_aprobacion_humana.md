@@ -25,8 +25,8 @@ sequenceDiagram
     LLM-->>AG: Plan: consultar métricas, cola y estado de cámara
     AG->>T: get_line_metrics, get_review_queue, get_camera_status
     T-->>AG: REVIEW 18% (normal 4%), motivo dominante high_angle_uncertainty, brillo -30%
-    AG->>SOP: buscar "incertidumbre de ángulo iluminación"
-    SOP-->>AG: SOP-MNT-004 §3 (revisar iluminación) y SOP-ML-002 §5 (ajuste temporal de umbral)
+    AG->>SOP: buscar "incertidumbre de ángulo exposición cámara umbral"
+    SOP-->>AG: SOP-CAM-01 [CAM-01.4] síntomas de deriva de exposición y SOP-ML-04 [ML-04.4] cambio de umbrales
     AG->>LLM: Evidencia + fragmentos SOP
     LLM-->>AG: Diagnóstico + propuesta: ticket de iluminación y subir max_angle_uncertainty_deg 10→12 por 8 h
     AG->>T: create_ticket (bajo riesgo, permitido a maintenance)
@@ -59,4 +59,5 @@ sequenceDiagram
 - El LLM nunca llama directamente a la acción riesgosa: la política es código, no prompt.
 - El ejecutor aplica *el diff aprobado*, no una nueva generación del LLM (evita que lo aprobado y lo ejecutado difieran).
 - Separación de funciones: quien pide no aprueba. Todo queda en una auditoría de solo inserción.
-- Variante rollback de modelo: el mismo flujo con `POST /v1/admin/promote` hacia la versión anterior.
+- Variante rollback de modelo: el mismo flujo con `POST /v1/admin/promote` hacia la versión anterior (SOP-ML-04 [ML-04.2]).
+- Los SOP citados existen en `docs/sop/`; las cifras del ejemplo (18%, 14:00, TCK-1042, APR-77) son ilustrativas.

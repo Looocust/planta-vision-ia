@@ -18,14 +18,14 @@ sequenceDiagram
     participant H as Humano (calidad / supervisor)
 
     CAM->>EDGE: Trigger del sensor de presencia → captura (~10-20 ms)
-    EDGE->>QG: Preprocesar (recorte ROI, normalización) (~2-5 ms)
+    EDGE->>QG: Preprocesar (recorte ROI, normalización)
     alt Imagen no apta (oscura, borrosa, tamaño)
         QG-->>DEC: quality.ok = false
         DEC->>PLC: HOLD (reason: image_quality)
         PLC->>RB: No toma el objeto, lo desvía
         DEC->>Q: Encolar con evidencia (REJECT)
     else Imagen apta
-        QG->>CLS: Extraer características + clasificar (~5-15 ms)
+        QG->>CLS: Extraer características + clasificar
         CLS->>CLS: Estimar ángulo + incertidumbre
         CLS->>DEC: label, confianza, ángulo, incertidumbre, ambigüedad
         alt Desconocido o baja confianza o ángulo dudoso o ambiguo
@@ -38,18 +38,17 @@ sequenceDiagram
             DEC-->>Q: (solo muestra ~2% para auditoría)
         end
     end
-    Note over CAM,PLC: Presupuesto total captura→orden al PLC: < 100 ms (estimado)<br/>vs ciclo de ~6 s por objeto. El robot NUNCA recibe un ángulo dudoso.
+    Note over CAM,PLC: Pipeline de visión medido p50 16,8 ms / p95 39,5 ms. Total hasta el PLC ≈ 32-80 ms<br/>(presupuesto < 100 ms) vs ciclo de ~6 s por objeto. El robot NUNCA recibe un ángulo dudoso.
     Q-->>H: Caso visible en la UI de revisión / en el chat del agente
     H->>Q: Etiqueta correcta + ángulo (o descarte) → dato para reentrenar
 ```
 
 | Paso | Dónde | ¿Determinista? | Latencia estimada |
 |---|---|---|---|
-| Captura | Cámara | Sí | 10–20 ms (exposición + transferencia GigE/USB3) |
-| Preproceso + compuerta de calidad | PC de borde | Sí | 2–5 ms |
-| Clasificación + ángulo | PC de borde | Sí | 5–15 ms (medido en la demo: ~12 ms en CPU) |
-| Decisión + comando | PC de borde | Sí | < 1 ms |
-| Envío al PLC | Red OT local | Sí | 5–20 ms |
-| **Total hasta el PLC** | | | **≈ 25–60 ms; presupuesto < 100 ms** |
+| Captura | Cámara | Sí | 10–20 ms (estimado: exposición + transferencia GigE/USB3) |
+| Pipeline de visión completo (calidad + características + clase + ángulo + decisión) | PC de borde | Sí | **Medido: p50 16,8 ms · p95 39,5 ms · media 19,9 ms** |
+| Envío al PLC | Red OT local | Sí | 5–20 ms (estimado) |
+| **Total hasta el PLC** | | | **≈ 32–80 ms; presupuesto < 100 ms** |
 
-*Todas las cifras son estimaciones de diseño excepto la de inferencia, que sale de la demo.*
+*Captura y PLC son estimaciones de diseño. El pipeline de visión está medido en la demo (CPU de portátil,
+`docs/report/results.json` → `cost.latency`); hay que repetir la medición en el PC industrial del piloto.*

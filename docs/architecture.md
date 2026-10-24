@@ -16,7 +16,7 @@ modelo no resuelva**.
 
 | Parte | Tipo | Dónde corre en producción | Latencia | Costo | Riesgo si falla |
 |---|---|---|---|---|---|
-| Captura → calidad → clase → ángulo → decisión → comando | **Determinista** (ML clásico + umbrales) | **Borde**: PC industrial en la celda | ms (presupuesto < 100 ms) | Fijo, CPU, sin costo por objeto | Alto (mueve un robot) → falla segura `HOLD` |
+| Captura → calidad → clase → ángulo → decisión → comando | **Determinista** (ML clásico + umbrales) | **Borde**: PC industrial en la celda | ms (visión medida p50 17 / p95 39 ms; presupuesto total < 100 ms) | Fijo, CPU, sin costo por objeto | Alto (mueve un robot) → falla segura `HOLD` |
 | Cola de revisión (alta del caso) | Determinista | Borde con buffer → nube | s | Bajo | Medio → se guarda localmente |
 | Revisión humana | Humano | UI en nube (respaldo local) | min | Es el costo residual principal | Bajo |
 | Asistente: preguntas, diagnóstico, SOP con citas, traspaso de turno | **Agéntico** (LLM + 13 tools) | **Nube** | s | Por token (~USD 20/mes) | Bajo para la línea: si cae, la producción sigue |
@@ -25,7 +25,7 @@ modelo no resuelva**.
 
 **Por qué así:**
 - **Latencia:** un viaje de ida y vuelta a la nube (60–150 ms + jitter) no aporta nada y añade un punto de falla. El
-  modelo clásico decide en ~12 ms en CPU.
+  pipeline clásico completo tarda p50 16,8 ms / p95 39,5 ms en CPU de portátil (medido, `docs/report/results.json`).
 - **Costo:** inferencia local = costo fijo de un PC; en la nube serían millones de llamadas al mes.
 - **Riesgo:** un LLM puede equivocarse o ser manipulado por texto (inyección de prompt). Por eso el LLM **propone**
   y el código **dispone**: el robot nunca recibe un ángulo dudoso (si la decisión no es `ACT`, el comando es `HOLD`)
@@ -72,9 +72,10 @@ Detalle: [Azure](cloud/azure_architecture.md) · [AWS](cloud/aws_architecture.md
 
 ## 6. Caso de negocio en tres números (supuestos editables en el xlsx)
 
-- La nube cuesta **≈ USD 520/mes por planta** (Azure, 1 estación) ≈ **USD 0,0017 por objeto**.
-- Con 95% de automatización (placeholder), el ahorro es **≈ 45% en Colombia** (payback ≈ 48 meses con 1 estación,
-  ≈ 18 con 5) y **≈ 64% en España** (payback ≈ 6,5 meses).
+- La nube cuesta **≈ USD 640/mes por planta en East US 2 y ≈ 740 en Spain Central** (Azure, 1 estación, precios de
+  lista verificados en su mayoría) ≈ **USD 0,002 por objeto**.
+- Con 95% de automatización (**placeholder**, a reemplazar por la cobertura medida), el ahorro es **≈ 41% en Colombia**
+  (payback ≈ 50 meses con 1 estación, ≈ 18 con 5) y **≈ 62% en España** (payback ≈ 6,6 meses).
 - Con **80%** de automatización el proyecto **no se paga**: la cola de revisión se come el ahorro. La métrica que manda
   es el % de objetos que el sistema resuelve **de forma segura**.
 

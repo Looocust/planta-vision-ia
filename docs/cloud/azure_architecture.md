@@ -5,9 +5,10 @@
 > milisegundos y aunque se caiga internet. La **nube** (Azure Container Apps, Azure OpenAI, AI Search,
 > PostgreSQL, Blob, Azure ML) aloja todo lo que no es tiempo real: el asistente agéntico, la cola de
 > revisión, la auditoría, el entrenamiento y el registro de modelos. Cada planta es una **estampa**
-> aislada (su propio grupo de recursos, base de datos y almacenamiento). Costo de nube estimado: **~USD 520/mes
-> por planta con 1 estación** (ver `finops_model.xlsx`), frente a **USD 2.400 (Colombia) – 12.300 (España)/mes**
-> que cuesta hoy el operador de esa estación.
+> aislada (su propio grupo de recursos, base de datos y almacenamiento). Costo de nube estimado a precio de lista: **~USD 640/mes
+> por planta con 1 estación en East US 2 (escenario Colombia) y ~USD 740/mes en Spain Central (escenario España)**
+> (ver `finops_model.xlsx`), frente a **≈ USD 2.490 (Colombia) – 12.280 (España)/mes** que cuesta hoy el operador de esa estación
+> (supuestos laborales editables).
 
 Índice: [1. Principio de diseño](#1-principio-de-diseño-qué-va-dónde) · [2. Diagrama](#2-diagrama) ·
 [3. Borde](#3-borde-la-planta) · [4. Nube](#4-plano-de-nube-servicio-por-servicio) ·
@@ -44,13 +45,15 @@ flowchart TB
             VM["Módulo visión<br/>(contenedor services/vision_api)"]
             PA["Módulo adaptador PLC<br/>OPC UA"]
             ANON["Módulo anonimizador<br/>ROI + difuminado de rostros"]
-            HUB["edgeHub<br/>store-and-forward (offline)"]
+            BUP["Módulo Blob Storage on IoT Edge<br/>buffer local + subida automática"]
+            HUB["edgeHub<br/>telemetría store-and-forward"]
             LUI["UI local de revisión<br/>(respaldo sin red)"]
         end
         PLC["PLC / controlador robot"]
         ROB["Brazo robótico"]
         CAM --> VM --> PA --> PLC --> ROB
-        VM --> ANON --> HUB
+        VM --> ANON --> BUP
+        VM -- "métricas y avisos ≤ 4 KB" --> HUB
         VM --> LUI
     end
 
@@ -66,7 +69,8 @@ flowchart TB
         subgraph STAMP["rg-planta-ID · estampa por planta"]
             ACA["Container Apps env (VNet)<br/>agente · visión no-tiempo-real · UI"]
             PG["PostgreSQL Flexible<br/>GP D2ds_v5 + HA zona<br/>estado, aprobaciones, auditoría,<br/>checkpoints LangGraph"]
-            BLOB["Blob Storage<br/>imágenes Hot→Cool→Archive<br/>auditoría WORM"]
+            BLOB["Cuenta de imágenes (LRS)<br/>Hot→Cool→Archive"]
+            AUDB["Cuenta de auditoría (ZRS)<br/>inmutabilidad WORM"]
             SRCH["AI Search Basic<br/>índice SOP de la planta"]
             KV["Key Vault planta"]
             FN["Function: router de eventos<br/>IoT Hub → PostgreSQL"]
@@ -76,12 +80,13 @@ flowchart TB
     end
 
     HUB -- "MQTT/AMQP sobre TLS 443<br/>solo saliente" --> IOTH
-    IOTH -- "ruteo: imágenes/evidencia" --> BLOB
-    IOTH -- "eventos de decisión" --> FN --> PG
+    BUP -- "HTTPS 443 saliente<br/>imágenes anonimizadas" --> BLOB
+    IOTH -- "telemetría y eventos de decisión" --> FN --> PG
+    PG -. "export diario de auditoría" .-> AUDB
     IOTH -- "despliegues por anillos<br/>(manifiestos de módulos)" --> IPC
     ACR -. "pull de imágenes" .-> IPC
     USERS["Supervisores · calidad ·<br/>mantenimiento · ML · gerencia"] -- "SSO" --> ENTRA
-    USERS -- "HTTPS" --> ACA
+    USERS -- "HTTPS por red corporativa<br/>(Private Endpoint del entorno)" --> ACA
     ACA --> AOAI
     ACA --> SRCH
     ACA --> PG
@@ -95,7 +100,10 @@ flowchart TB
 ```
 
 Todos los PaaS de la estampa tienen **acceso público deshabilitado** y se alcanzan por **Private Endpoints**
-desde la VNet del entorno de Container Apps. El borde solo abre conexiones **salientes** a IoT Hub y ACR.
+desde la VNet del entorno de Container Apps. El propio entorno de Container Apps se publica con un **Private Endpoint**
+(USD 0,10/h verificado): el chat solo es accesible desde la red corporativa. El borde solo abre conexiones **salientes**
+a IoT Hub (telemetría), a la cuenta de imágenes (Blob) y a ACR. **Las imágenes no viajan por IoT Hub** (cada mensaje de
+IoT Hub cuenta en bloques de 4 KB; una imagen de 150 KB consumiría ~38 mensajes).
 
 ---
 
@@ -127,7 +135,8 @@ alcance; como el módulo de visión es un contenedor estándar, migrar a IoT Ope
 | `vision` | El mismo contenedor de `services/vision_api` con el modelo **dentro de la imagen** (versión inmutable) | Rollback = volver a la imagen anterior; no hay descarga de modelo en caliente |
 | `plc-adapter` | Traduce `robot_command` a OPC UA (o Profinet/Modbus vía gateway) | Si el PLC no recibe ACK en N ms → HOLD (falla segura) |
 | `anonymizer` | Recorta a la región de la banda (ROI) y difumina rostros/personas antes de subir cualquier imagen | El recorte ROI es el control principal; el difuminado (detector de rostros ligero) es la segunda barrera |
-| `edgeHub` / `edgeAgent` | Mensajería con store-and-forward y ciclo de vida de módulos | Disco local dimensionado para ≥ 7 días sin red |
+| `blob-edge` | Módulo **Azure Blob Storage on IoT Edge**: guarda las imágenes anonimizadas en disco local y las sube solo (*deviceToCloudUpload*) a la cuenta de imágenes cuando hay red | Verificar la vigencia del módulo al iniciar el proyecto; alternativa equivalente: subida directa con SAS de corta duración emitido por la nube. En ambos casos IoT Hub solo lleva un aviso con la referencia |
+| `edgeHub` / `edgeAgent` | Telemetría con store-and-forward y ciclo de vida de módulos | Disco local dimensionado para ≥ 7 días sin red |
 | `review-ui` (respaldo) | Vista local de la cola si no hay internet | Los casos se sincronizan al volver la red |
 
 **Hardware sugerido (estimado):** PC fanless con CPU x86 de 4-8 núcleos, 16-32 GB RAM, SSD industrial
@@ -137,7 +146,7 @@ controlada (la iluminación es la mayor fuente de error en visión clásica).
 ### 3.3 Red OT
 
 El PC de borde vive en una zona intermedia (modelo de zonas y conductos **IEC 62443**): una NIC hacia la
-red del PLC, otra hacia la red IT con salida solo a `*.azure-devices.net` (8883/443) y al ACR. Ninguna
+red del PLC, otra hacia la red IT con salida solo a `*.azure-devices.net` (8883/443), a la cuenta de imágenes y al ACR. Ninguna
 conexión entrante desde internet. Esto es lo que normalmente exige el equipo de OT antes de aprobar cualquier proyecto.
 
 ---
@@ -148,9 +157,11 @@ conexión entrante desde internet. Esto es lo que normalmente exige el equipo de
 
 - **Qué corre:** el agente LangGraph (`services/agent`), una instancia de la API de visión para inspección
   desde el chat y para *staging* de SKU nuevos, y la UI.
-- **SKU:** entorno con perfil **Consumption** integrado a VNet. Agente: 0,5 vCPU / 1 GiB, **mínimo 1 réplica
-  en horario de turnos y 0 los fines de semana** (reglas de escala programadas); visión cloud: 1 vCPU / 2 GiB, escala a cero.
-- **Precio verificado:** USD 0,000024 por vCPU-segundo activo y 0,000003 por GiB-segundo (East US 2, API de precios, 2026-10-24).
+- **SKU:** entorno con perfil **Consumption** integrado a VNet, con **redundancia de zona** y **Private Endpoint** de entrada.
+  Agente: 0,5 vCPU / 1 GiB por réplica, **mínimo 2 réplicas en horario de turnos** (una por zona: sin 2 réplicas la
+  redundancia de zona no sirve) y 0 los fines de semana; visión cloud: 1 vCPU / 2 GiB, escala a cero.
+- **Precio verificado:** USD 0,000024 por vCPU-segundo y 0,000003 por GiB-segundo en East US 2; 0,000034 y 0,000004 en
+  Spain Central; Private Endpoint del entorno 0,10 (EE. UU.) / 0,13 (Spain Central) USD/h (API de precios, 2026-10-24).
 - **Por qué:** escala a cero, revisiones con *traffic splitting* (canario del agente), autenticación integrada con
   Entra ID, identidad administrada y no obliga a operar Kubernetes.
 - **Rechazadas:** **AKS** (potente pero excesivo para 2-3 servicios, costo fijo de nodos y operación);
@@ -169,7 +180,8 @@ conexión entrante desde internet. Esto es lo que normalmente exige el equipo de
   **USD 20/mes** de LLM. Las PTU (capacidad reservada) tienen un mínimo de unidades que cuesta del orden de cientos de USD al día (estimado, verificar); solo
   convienen con tráfico alto y constante o latencia garantizada. **Regla:** revisar PTU si el gasto LLM
   supera de forma sostenida el costo mensual de la unidad mínima de PTU.
-- **Precios verificados (API, Data Zone):** gpt-4.1-mini entrada USD 0,44 / 1M tokens, entrada en caché 0,11, salida 1,76.
+- **Precios verificados (API, Data Zone, iguales en East US 2 y Spain Central):** gpt-4.1-mini entrada USD 0,44 / 1M tokens,
+  caché 0,11, salida 1,76; gpt-4.1 entrada 2,20, caché 0,55, salida 8,80.
 - **Filtros de contenido:** se dejan los filtros por defecto (odio, violencia, sexual, autolesión) y se activan
   **Prompt Shields** (jailbreak e **inyección indirecta**: el agente lee SOP, tickets y textos que podrían contener
   instrucciones maliciosas). El filtro es una capa más: la defensa real es que las acciones las autoriza la política determinista.
@@ -180,15 +192,16 @@ conexión entrante desde internet. Esto es lo que normalmente exige el equipo de
 
 - **SKU:** **Basic** (USD 0,101/h ≈ 74/mes, verificado). Un índice por planta con búsqueda **híbrida**
   (palabras clave + vectores) y ranker semántico (cuota gratuita mensual suficiente).
-- **Por qué:** los SOP mezclan códigos exactos ("SOP-MNT-004", "E-217") y lenguaje natural; la búsqueda híbrida
-  encuentra ambos. Devuelve el fragmento y su origen para **citar**. Vectorización integrada con un modelo de embeddings de Azure OpenAI.
+- **Por qué (hipótesis a validar):** los SOP mezclan códigos exactos ("SOP-CAM-01", "CAM-01.4") y lenguaje natural;
+  esperamos que la búsqueda híbrida recupere mejor ambos que solo vectores. **No está medido**: se validaría con los casos
+  de `eval/agent/` comparando AI Search contra pgvector antes de comprometer el gasto. Devuelve el fragmento y su origen para **citar**. Vectorización integrada con un modelo de embeddings de Azure OpenAI.
 - **Trade-off honesto:** para un corpus de decenas de SOP, **pgvector en la misma PostgreSQL** costaría USD 0 adicional.
-  Elegimos AI Search por calidad de recuperación híbrida y separación de responsabilidades; si el presupuesto
+  Elegimos AI Search por la capacidad híbrida + semántica integrada y la separación de responsabilidades; si el presupuesto
   aprieta, es la primera línea a recortar (−74 USD/mes por planta).
 
 ### 4.4 Azure Database for PostgreSQL Flexible Server — estado y auditoría (elegida frente a Cosmos DB)
 
-- **SKU:** General Purpose **D2ds_v5** (2 vCore, USD 0,178/h verificado), 64 GB SSD, **HA con réplica en otra zona**
+- **SKU:** General Purpose **D2ds_v5** (2 vCore, USD 0,178/h East US 2 · 0,212/h Spain Central, verificado), 64 GB SSD, **HA con réplica en otra zona**
   en producción; en piloto, Burstable B2ms sin HA.
 - **Qué guarda:** conversaciones y **checkpoints de LangGraph** (`langgraph-checkpoint-postgres`, el checkpointer oficial),
   aprobaciones, tickets, cola de revisión, eventos de decisión agregados y la **auditoría**.
@@ -199,15 +212,18 @@ conexión entrante desde internet. Esto es lo que normalmente exige el equipo de
   3. Costo predecible (vCore) frente al modelo de RU de Cosmos, difícil de estimar con consultas analíticas.
   4. No necesitamos distribución global multi-región de escritura, que es la gran ventaja de Cosmos.
 - **Auditoría inmutable:** tabla de solo inserción (sin `UPDATE`/`DELETE` para el rol de la app) + exportación diaria
-  a un contenedor Blob con **política de inmutabilidad (WORM)**.
+  a la **cuenta de auditoría** (ZRS) con **política de inmutabilidad (WORM)**.
 
 ### 4.5 Blob Storage — imágenes y evidencia
 
 - **Qué se sube:** solo imágenes **anonimizadas** de casos REVIEW/REJECT y una muestra (~2%) de ACT para auditoría y reentrenamiento.
 - **Ciclo de vida:** Hot 30 días (revisión y reentrenamiento) → Cool hasta el día 180 → Archive hasta 3 años → borrado.
   Precios verificados (LRS): Hot 0,0184, Cool 0,01, Archive 0,002 USD/GB-mes.
-- **Redundancia:** LRS para imágenes (son evidencia reproducible y baratas de perder parcialmente); **ZRS/GZRS** para el
-  contenedor de auditoría.
+- **Dos cuentas de almacenamiento**, porque la redundancia se elige **por cuenta**, no por contenedor:
+  - **Cuenta de imágenes — LRS** con ciclo de vida Hot→Cool→Archive (Archive **no** admite ZRS/GZRS; además las imágenes
+    son evidencia reemplazable).
+  - **Cuenta de auditoría — ZRS** (Hot ZRS 0,023 USD/GB-mes verificado) con inmutabilidad WORM y sin tier Archive.
+- **Cómo llegan:** desde el módulo Blob Storage on IoT Edge del PC de planta, directo a la cuenta de imágenes (no por IoT Hub).
 - **Por qué no guardar todo:** 600 objetos/h × 520 h × 150 KB ≈ 45 GB/mes por estación si se subiera todo; subiendo
   solo ~7% son ~3 GB/mes. Menos datos = menos costo, menos riesgo de privacidad.
 
@@ -221,11 +237,13 @@ conexión entrante desde internet. Esto es lo que normalmente exige el equipo de
 
 ### 4.7 IoT Hub (+ DPS) — telemetría y gestión de dispositivos
 
-- **SKU:** **S1** (USD 25/mes, 400.000 mensajes/día, verificado). Con ~3.000 mensajes/día por estación cabe un centenar
-  de estaciones en una unidad. **No usar Basic**: no permite cloud-to-device ni IoT Edge.
+- **SKU:** **S1** (USD 25/mes, 400.000 mensajes/día de hasta 4 KB, verificado). **Solo telemetría y avisos pequeños**:
+  ~3.000 mensajes de telemetría + ~1.000 avisos de imagen subida (uno por imagen, con su referencia) ≈ 4.000/día por
+  estación → unas 100 estaciones por unidad. Si las imágenes pasaran por IoT Hub serían ~40.000 mensajes/día por estación
+  (≈ 9 estaciones por unidad): por eso van directo a Blob. **No usar Basic**: no permite cloud-to-device ni IoT Edge.
 - **Device Provisioning Service** con atestación **TPM/X.509**: un PC nuevo se registra solo, sin copiar claves a mano.
 - **Despliegues en capas (layered deployments)** por tags (`planta`, `linea`, `anillo=canario|general`) → base del canario de modelos.
-- **Ruteo de mensajes:** evidencia → Blob; eventos de decisión → Event Grid → Function → PostgreSQL.
+- **Ruteo de mensajes:** telemetría y eventos de decisión → Event Grid → Function → PostgreSQL (las imágenes no pasan por aquí).
 
 ### 4.8 ¿Event Hubs / Stream Analytics? No, por ahora
 
@@ -241,7 +259,7 @@ Con decenas de estaciones, el endpoint integrado de IoT Hub + una Function basta
   costo, latencia), métricas de negocio (% ACT, % REVIEW por línea), logs de los módulos de borde. Alertas: % REVIEW > umbral,
   dispositivo desconectado > 5 min, gasto LLM diario > presupuesto.
 - **Defender for Cloud:** postura (CSPM gratis), Defender for Containers (escaneo de imágenes en ACR), Defender for Storage
-  y **Defender for Servers en los PC de borde vía Azure Arc** (el PC de planta es el activo más expuesto).
+  en las dos cuentas y **Defender for Servers en los PC de borde vía Azure Arc** (el PC de planta es el activo más expuesto).
 
 ---
 
@@ -272,7 +290,7 @@ sobre una plataforma compartida.**
 | Opción | Pros | Contras | Veredicto |
 |---|---|---|---|
 | Base compartida con aislamiento por fila (`plant_id`) | Más barata | Un bug de filtro expone datos de otra planta; auditoría y residencia difíciles | Rechazada para datos operativos |
-| **RG por planta (estampa) + plataforma compartida** | Aislamiento fuerte de datos (PG, Blob, Search, Key Vault propios), RBAC por RG, costo por planta trivial (showback), mismo IaC repetido | ~USD 450/mes fijos por planta | **Elegida** |
+| **RG por planta (estampa) + plataforma compartida** | Aislamiento fuerte de datos (PG, Blob, Search, Key Vault propios), RBAC por RG, costo por planta trivial (showback), mismo IaC repetido | ~USD 600/mes fijos por planta | **Elegida** |
 | Suscripción por planta (landing zone) | Máximo aislamiento, límites y políticas independientes | Más gobierno; útil con >10 plantas o entidades legales distintas | Evolución natural |
 
 Lo compartido (IoT Hub, ACR, Azure ML Registry, Azure OpenAI, Log Analytics) no guarda datos de negocio de una
@@ -325,7 +343,7 @@ de datos y accesos es nuestro.
 | Internet / Azure | Caída | **La línea sigue**; el chat no está disponible | Inferencia local, edgeHub guarda hasta 7 días, UI de revisión local | Línea: 0 / 0 |
 | PC de borde | Falla de hardware | La estación cae a modo manual | PC de repuesto preaprovisionado (DPS lo registra solo); en líneas críticas, par activo/pasivo | 30 min / n.a. |
 | Cámara | Falla | Todo sale como REJECT (falla segura) | Alarma inmediata por % REJECT; repuesto en planta | 30 min |
-| Agente (Container Apps) | Caída de réplica/zona | Chat no disponible | Réplicas y redundancia de zona | Minutos / 0 |
+| Agente (Container Apps) | Caída de réplica/zona | Chat sigue en la otra réplica | 2 réplicas mínimas en zonas distintas (presupuestadas) | Segundos / 0 |
 | PostgreSQL | Caída de zona | Agente sin estado | HA de zona con failover automático; PITR 7-35 días | < 2 min / ≈ 0 |
 | Región Azure | Caída regional | Chat y cola en nube no disponibles | Redespliegue de la estampa por IaC en región pareada + restauración geo de backups | 4-8 h / < 1 h |
 
@@ -338,30 +356,29 @@ La clave: **la nube puede fallar sin parar la producción**. Por eso no se paga 
 | Etapa | Estimado | Comentario |
 |---|---|---|
 | Captura (exposición + transferencia) | 10–20 ms | Depende de cámara e interfaz |
-| Preproceso + compuerta de calidad | 2–5 ms | OpenCV en CPU |
-| Clasificación + ángulo | 5–15 ms | **Medido en la demo ≈ 12 ms** en CPU de portátil |
-| Decisión + armado del comando | < 1 ms | Reglas |
-| Envío al PLC (OPC UA, red local) | 5–20 ms | |
-| **Total hasta el PLC** | **≈ 25–60 ms (presupuesto: < 100 ms)** | Frente a un ciclo de ~6 s por objeto |
+| Pipeline de visión completo (calidad + características + clase + ángulo + decisión) | **p50 16,8 ms · p95 39,5 ms · media 19,9 ms** | **Medido** en CPU de portátil, `docs/report/results.json` (`cost.latency`) |
+| Envío al PLC (OPC UA, red local) | 5–20 ms | Estimado |
+| **Total hasta el PLC** | **≈ 32–80 ms (presupuesto: < 100 ms)** | Frente a un ciclo de ~6 s por objeto. Con p95 de visión, el total queda < 80 ms |
 | *Alternativa en la nube* | +60–150 ms de ida y vuelta + jitter + caídas | **Rechazada**: no aporta y añade un punto de falla |
 
-*Cifras estimadas salvo la inferencia; validar en el piloto con la cámara real.*
+*Captura y PLC son estimaciones; el pipeline de visión está medido en la demo (no en el PC industrial). Validar en el piloto con la cámara real.*
 
 ---
 
 ## 11. Costos
 
 Detalle con fórmulas en [`finops_model.xlsx`](finops_model.xlsx) y prácticas en [`finops.md`](finops.md).
-Escenario base: 1 planta, 1 estación, 95% automatizado (supuesto), precios de lista East US 2.
+Escenario base: 1 planta, 1 estación, 95% automatizado (**placeholder**), precios de lista por región.
 
-| Bloque | USD/mes | Fuente del precio |
-|---|---|---|
-| Plataforma fija (PG HA, AI Search, Container Apps, IoT Hub, red privada, observabilidad, Defender) | ≈ 479 | Mayoría verificada en API de precios de Azure (2026-10-24) |
-| Por estación (almacenamiento de imágenes, Defender en PC de borde) | ≈ 20 | Verificado |
-| LLM del asistente (~1.300 conversaciones/mes) | ≈ 20 | gpt-4.1-mini verificado; gpt-4.1 estimado |
-| **Total nube** | **≈ 519** | |
+| Bloque | East US 2 (USD/mes) | Spain Central (USD/mes) | Fuente del precio |
+|---|---|---|---|
+| Plataforma fija (PG HA, 2 réplicas del agente, Private Endpoints, AI Search, IoT Hub, observabilidad, Defender, cuenta de auditoría) | ≈ 598 | ≈ 700 | Mayoría verificada en la API de precios (medidores en la hoja *Fuentes*) |
+| Por estación (cuenta de imágenes, Defender en PC de borde) | ≈ 20 | ≈ 20 | Verificado |
+| LLM del asistente (~1.300 conversaciones/mes) | ≈ 20 | ≈ 20 | Verificado (Data Zone) |
+| **Total nube** | **≈ 637** | **≈ 741** | |
 
-Los mayores costos son **PostgreSQL con HA (≈ 260)** y **AI Search (≈ 74)**, no el LLM. El costo de la nube es
+Los mayores costos son **PostgreSQL con HA (≈ 275)**, los **Private Endpoints** (≈ 73 del entorno + ≈ 44 de PaaS),
+**AI Search (≈ 74)** y las **2 réplicas del agente (≈ 56)**, no el LLM. El costo de la nube es
 pequeño frente al costo laboral evitado; el número que más mueve el caso de negocio es el **% automatizado**.
 
 ---

@@ -52,11 +52,11 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     MODEL_DIR=models/vision-1.0.0 \
-    DATA_DIR=data/raw \
+    DATA_DIR=data/raw/coil-100 \
     AGENT_DB_PATH=data/runtime/agent.db
 
 # Directorios montables (modelos y datos de ejecución llegan por volumen)
-RUN mkdir -p /app/models /app/data/raw /app/data/runtime && chown -R app:app /app/models /app/data
+RUN mkdir -p /app/models /app/data/raw/coil-100 /app/data/runtime && chown -R app:app /app/models /app/data
 
 USER app
 

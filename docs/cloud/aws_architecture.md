@@ -4,8 +4,9 @@
 > **AWS IoT Greengrass V2** en un PC industrial; la nube aloja el asistente (ECS Fargate + Amazon Bedrock),
 > el estado y la auditoría (Aurora PostgreSQL Serverless v2), la recuperación de SOP (Bedrock Knowledge Bases
 > sobre pgvector), las imágenes (S3 con ciclo de vida) y el MLOps (SageMaker Model Registry). Cada planta es una
-> **cuenta AWS propia** dentro de AWS Organizations. Costo de nube estimado: **~USD 400/mes por planta con 1 estación**
-> (precios de lista **no verificados contra API**, ver `finops_model.xlsx`).
+> **cuenta AWS propia** dentro de AWS Organizations. Costo de nube a precio de lista: **~USD 410/mes por planta con 1 estación en us-east-1 y ~USD 464/mes en
+> eu-south-2 (España)**. La mayoría de precios se verificaron en la AWS Price List Bulk API; Bedrock, NAT, GuardDuty y SSM
+> son estimados (ver hoja *Fuentes* de `finops_model.xlsx`).
 
 Este documento sigue la misma estructura que [`azure_architecture.md`](azure_architecture.md); donde la
 justificación es idéntica (qué va en el borde y por qué, presupuesto de latencia, roles) se resume y se remite a él.
@@ -28,12 +29,14 @@ flowchart TB
             VM["Componente visión<br/>(contenedor services/vision_api)"]
             PA["Componente adaptador PLC<br/>OPC UA"]
             ANON["Componente anonimizador<br/>ROI + difuminado"]
-            SM["Stream Manager<br/>buffer offline"]
+            SM["Stream Manager<br/>buffer offline → export S3"]
+            MQ["Nucleus MQTT spooler<br/>telemetría offline"]
             LUI["UI local de revisión"]
         end
         PLC["PLC / robot"]
         CAM --> VM --> PA --> PLC
         VM --> ANON --> SM
+        VM -- "métricas y avisos" --> MQ
         VM --> LUI
     end
 
@@ -45,7 +48,7 @@ flowchart TB
             BR["Amazon Bedrock<br/>Claude Haiku 4.5 / Sonnet 4.5<br/>+ Guardrails"]
         end
         subgraph STAMP["Cuenta planta-ID (estampa)"]
-            ALB["ALB + autenticación OIDC"]
+            ALB["ALB + authenticate-oidc<br/>IdP: Entra ID (o Cognito federado)"]
             ECS["ECS Fargate<br/>agente · visión no-tiempo-real · UI"]
             AUR["Aurora PostgreSQL Serverless v2<br/>estado · aprobaciones · auditoría ·<br/>checkpoints · pgvector"]
             KB["Bedrock Knowledge Base<br/>SOP de la planta"]
@@ -54,17 +57,20 @@ flowchart TB
             LBD["Lambda: router de eventos"]
             CW["CloudWatch + X-Ray (ADOT)"]
         end
-        IDC["IAM Identity Center<br/>federado con Entra ID corporativo"]
+        ENTRA["Entra ID corporativo<br/>(IdP OIDC de la app)"]
+        IDC["IAM Identity Center<br/>solo acceso a consola/infra"]
         GD["GuardDuty · Security Hub · Inspector"]
     end
 
-    SM -- "MQTT/HTTPS saliente" --> IOTC
-    IOTC -- "regla IoT: evidencia" --> S3
-    IOTC -- "regla IoT: eventos" --> LBD --> AUR
+    SM -- "export S3 (HTTPS saliente)<br/>imágenes anonimizadas" --> S3
+    MQ -- "MQTT 8883 saliente" --> IOTC
+    IOTC -- "regla IoT: telemetría y eventos" --> LBD --> AUR
     SMR -- "despliegue Greengrass por thing group<br/>canario → general" --> IPC
     ECR -. "pull" .-> IPC
-    USERS["Usuarios de planta"] -- "SSO" --> IDC
+    USERS["Usuarios de planta"] -- "OIDC" --> ENTRA
     USERS -- "HTTPS" --> ALB --> ECS
+    ALB -. "valida token" .-> ENTRA
+    ADM["Equipo de plataforma"] -- "SSO" --> IDC
     ECS --> BR
     ECS --> KB --> AUR
     ECS --> AUR
@@ -79,7 +85,7 @@ flowchart TB
 | | **Elegido: IoT Greengrass V2** | Alternativa: EKS Anywhere / ECS Anywhere | Alternativa: AWS Outposts / Snow |
 |---|---|---|---|
 | Encaje | Componentes (contenedores o procesos) desplegados por *thing groups*; ideal para 3-4 módulos | Útil si la planta ya opera K8s/ECS | Sobredimensionado y caro |
-| Offline | **Stream Manager** con buffer local y exportación a S3/Kinesis/IoT al reconectar | Construirlo | Sí |
+| Offline | **Stream Manager** con buffer local y exportación al reconectar (destinos soportados: Kinesis Data Streams, S3, IoT Analytics, IoT SiteWise → usamos **S3** para imágenes); la telemetría MQTT a IoT Core se encola offline en el *spooler* del nucleus | Construirlo | Sí |
 | Costo | ~USD 0,16/dispositivo/mes (estimado) | Licencias/soporte | Alto |
 
 Componentes equivalentes a los de Azure: `vision` (imagen con el modelo dentro), `plc-adapter`, `anonymizer`,
@@ -90,24 +96,24 @@ UI local de revisión. Gestión del SO del PC con **Systems Manager** (instancia
 
 | Necesidad | Servicio y tier | Por qué | Rechazado y por qué |
 |---|---|---|---|
-| Hospedar agente, UI y visión cloud | **ECS on Fargate** (0,5 vCPU / 1 GB) detrás de **ALB** con autenticación OIDC | Sin servidores que parchear; ALB autentica contra Identity Center/Entra antes de llegar a la app | **App Runner** (más simple, pero menos control de red y de autenticación); **EKS** (operar K8s para 2-3 servicios); **Lambda** (conversaciones largas con estado) |
-| LLM | **Amazon Bedrock**: Claude Haiku 4.5 por defecto, Claude Sonnet 4.5 para diagnósticos | Modelos fuertes en uso de herramientas; pago por token; datos no usados para entrenar; endpoint privado (PrivateLink) | Modelos abiertos en GPU propia (costo fijo); Amazon Nova Lite (más barato, menor calidad de tool-calling: evaluar con `eval/agent`) |
+| Hospedar agente, UI y visión cloud | **ECS on Fargate** (0,5 vCPU / 1 GB) detrás de **ALB** con `authenticate-oidc` usando **Entra ID como IdP OIDC** (o Cognito federado con Entra) | Sin servidores que parchear; el ALB autentica antes de llegar a la app y entrega los claims (roles) | **App Runner** (más simple, pero menos control de red y de autenticación); **EKS** (operar K8s para 2-3 servicios); **Lambda** (conversaciones largas con estado) |
+| LLM | **Amazon Bedrock**: Claude Haiku 4.5 por defecto, Claude Sonnet 4.5 para diagnósticos | Modelos fuertes en uso de herramientas; pago por token; datos no usados para entrenar; endpoint privado (PrivateLink) | Modelos abiertos en GPU propia (costo fijo); Amazon Nova Lite (más barato; **hipótesis no medida**: podría rendir peor en tool-calling → decidir con `eval/agent`) |
 | Protección del LLM | **Bedrock Guardrails** (filtros de contenido, ataques de prompt, temas denegados) | Capa equivalente a Prompt Shields | — |
-| Recuperación de SOP | **Bedrock Knowledge Bases** con vector store **Aurora PostgreSQL (pgvector)** | Reutiliza la base que ya pagamos; devuelve citas | **OpenSearch Serverless** (mínimo ~USD 350/mes, desproporcionado para pocos SOP); **Kendra** (licencia alta) |
+| Recuperación de SOP | **Bedrock Knowledge Bases** con vector store **Aurora PostgreSQL (pgvector)** | Reutiliza la base que ya pagamos; devuelve citas (calidad frente a alternativas: no medida) | **OpenSearch Serverless** (mínimo ~USD 350/mes, desproporcionado para pocos SOP); **Kendra** (licencia alta) |
 | Estado, aprobaciones, auditoría, checkpoints LangGraph | **Aurora PostgreSQL Serverless v2** (0,5–2 ACU, réplica lectora en otra AZ) | Relacional y transaccional (mismas razones que en Azure); escala con la carga de turnos; requisito de Bedrock KB | **DynamoDB** (equivalente a Cosmos: sin joins ni restricciones para "aprobador ≠ solicitante"); **RDS PostgreSQL** (válido y algo más barato fijo, pero no sirve de vector store para KB) |
 | Imágenes | **S3** con lifecycle: Standard 30 d → Standard-IA → Glacier Deep Archive a 180 d → expira a 3 años; auditoría con **Object Lock** (WORM) | Barato, maduro | — |
 | MLOps | **SageMaker AI**: MLflow gestionado, Pipelines (CPU, escala a cero), **Model Registry** con estados *PendingManualApproval → Approved* | El estado de aprobación del registro encaja con nuestra aprobación humana | Endpoints de SageMaker para inferencia en tiempo real (la inferencia vive en el borde) |
-| Telemetría y dispositivos | **IoT Core** (reglas → S3 / Lambda), **IoT Device Defender** | Pago por mensaje: muy barato a esta escala | **Kinesis** (como Event Hubs: solo con >20 plantas o analítica en streaming) |
+| Telemetría y dispositivos | **IoT Core** solo para telemetría y avisos pequeños (reglas → Lambda), **IoT Device Defender**; las imágenes van a S3 por Stream Manager | Pago por mensaje: muy barato a esta escala | **Kinesis** (como Event Hubs: solo con >20 plantas o analítica en streaming) |
 | Secretos | **Secrets Manager** | Rotación integrada | Parameter Store (válido para config no secreta) |
-| Identidad | **IAM Identity Center** federado con el Entra ID corporativo para personas; **roles IAM** para servicios | Una sola identidad corporativa; roles de app como grupos | Cognito como directorio propio (otra base de usuarios que mantener) |
+| Identidad | Usuarios de la app: **Entra ID como IdP OIDC del ALB** (o **Cognito** federado con Entra si se quiere un pool propio). Personas que operan AWS: **IAM Identity Center** federado con Entra. Servicios: **roles IAM** | Una sola identidad corporativa | Identity Center como IdP de la app: no actúa como proveedor OIDC para aplicaciones propias detrás de un ALB |
 | Observabilidad | **CloudWatch** (logs, métricas, alarmas) + **X-Ray / ADOT** para trazas del agente | Nativo | — |
 | Seguridad | **GuardDuty**, **Security Hub**, **Inspector** (imágenes ECR), **VPC endpoints** | Postura y detección | — |
 
 ## 5. Identidad y roles
 
 Los seis roles (`operator`, `supervisor`, `quality`, `maintenance`, `ml_engineer`, `plant_manager`) se modelan como
-**grupos** sincronizados desde Entra ID a IAM Identity Center; el ALB entrega los claims al agente, que filtra tools y
-aplica la política. Para infraestructura, *permission sets* por rol (p. ej. `ml_engineer` → acceso a SageMaker en la
+**app roles / grupos de Entra ID**; el ALB (authenticate-oidc contra Entra) entrega los claims al agente, que filtra tools
+y aplica la política. Para infraestructura, IAM Identity Center federado con Entra y *permission sets* por rol (p. ej. `ml_engineer` → acceso a SageMaker en la
 cuenta compartida; `plant_manager` → Billing/Cost Explorer de su cuenta). Misma regla de separación de funciones.
 
 ## 6. Aislamiento multi-planta
@@ -132,21 +138,22 @@ CloudTrail o sacar datos de la región. Anonimización en el borde antes de subi
 
 ## 9. HA/DR
 
-La línea no depende de la nube (inferencia local + Stream Manager). Aurora con réplica en otra AZ (failover < 1 min) y
+La línea no depende de la nube (inferencia local + Stream Manager + spooler MQTT). Aurora con réplica en otra AZ (failover < 1 min) y
 backups continuos (PITR); ECS con tareas en 2 AZ; para desastre regional, redespliegue por IaC (CDK/Terraform) y
 restauración de snapshot copiado a otra región. Objetivos iguales a los de Azure §9.
 
 ## 10. Latencia
 
-Idéntica a Azure §10 (el camino crítico no toca la nube): **≈ 25–60 ms estimados hasta el PLC, presupuesto < 100 ms**.
+Idéntica a Azure §10 (el camino crítico no toca la nube): pipeline de visión **medido** p50 16,8 ms / p95 39,5 ms;
+**≈ 32–80 ms hasta el PLC** sumando captura y PLC estimados; presupuesto < 100 ms.
 
-## 11. Costos (resumen, todos estimados)
+## 11. Costos (resumen)
 
-| Bloque | USD/mes |
-|---|---|
-| Plataforma fija (Aurora 2×1 ACU, Fargate, ALB, NAT, VPC endpoints, GuardDuty, …) | ≈ 350 |
-| Por estación (S3, IoT Core, Greengrass, SSM) | ≈ 11 |
-| LLM (Claude Haiku 4.5 + 15% Sonnet 4.5) | ≈ 36 |
-| **Total** | **≈ 397** |
+| Bloque | us-east-1 (USD/mes) | eu-south-2 (USD/mes) |
+|---|---|---|
+| Plataforma fija (Aurora 2×1 ACU, 2 tareas Fargate, ALB, NAT, VPC endpoints, GuardDuty, …) | ≈ 363 | ≈ 413 |
+| Por estación (S3, IoT Core, Greengrass, SSM) | ≈ 11 | ≈ 12 |
+| LLM (Claude Haiku 4.5 + 15% Sonnet 4.5, **estimado**) | ≈ 36 | ≈ 40 (EE. UU. × factor UE) |
+| **Total** | **≈ 410** | **≈ 464** |
 
 Comparación detallada y por qué AWS sale más barato en este modelo: [`azure_vs_aws.md`](azure_vs_aws.md).

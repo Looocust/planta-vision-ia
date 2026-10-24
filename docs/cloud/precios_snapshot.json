@@ -1,0 +1,990 @@
+{
+ "_fecha": "2026-10-24",
+ "_nota": "Generado por scripts/build_finops.py --refresh-prices",
+ "precios": {
+  "az_aca_vcpu": {
+   "us": {
+    "price": 2.4e-05,
+    "unit": "1 Second",
+    "meter": "Standard vCPU Active Usage",
+    "sku": "Standard",
+    "product": "Azure Container Apps",
+    "meter_id": "18ba5751-fda4-558b-b9dc-9416e72b9a62",
+    "region": "eastus2",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'eastus2' and priceType eq 'Consumption' and serviceName eq 'Azure Container Apps' and meterName eq 'Standard vCPU Active Usage'",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 3.4e-05,
+    "unit": "1 Second",
+    "meter": "Standard vCPU Active Usage",
+    "sku": "Standard",
+    "product": "Azure Container Apps",
+    "meter_id": "0eac9400-b3dd-53de-bb30-45c8092eaa8d",
+    "region": "spaincentral",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'spaincentral' and priceType eq 'Consumption' and serviceName eq 'Azure Container Apps' and meterName eq 'Standard vCPU Active Usage'",
+    "fecha": "2026-10-24"
+   }
+  },
+  "az_aca_mem": {
+   "us": {
+    "price": 3e-06,
+    "unit": "1 GiB Second",
+    "meter": "Standard Memory Active Usage",
+    "sku": "Standard",
+    "product": "Azure Container Apps",
+    "meter_id": "ef6a0bec-4635-5e9c-8b2e-8b346b998acb",
+    "region": "eastus2",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'eastus2' and priceType eq 'Consumption' and serviceName eq 'Azure Container Apps' and meterName eq 'Standard Memory Active Usage'",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 4e-06,
+    "unit": "1 GiB Second",
+    "meter": "Standard Memory Active Usage",
+    "sku": "Standard",
+    "product": "Azure Container Apps",
+    "meter_id": "5769c54d-3009-5681-a064-c39ee4e45e0c",
+    "region": "spaincentral",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'spaincentral' and priceType eq 'Consumption' and serviceName eq 'Azure Container Apps' and meterName eq 'Standard Memory Active Usage'",
+    "fecha": "2026-10-24"
+   }
+  },
+  "az_aca_pe": {
+   "us": {
+    "price": 0.1,
+    "unit": "1 Hour",
+    "meter": "Environment Private Endpoint",
+    "sku": "Environment",
+    "product": "Azure Container Apps",
+    "meter_id": "b564ef7d-f16d-595f-ad2f-aac2ed16c49e",
+    "region": "eastus2",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'eastus2' and priceType eq 'Consumption' and serviceName eq 'Azure Container Apps' and meterName eq 'Environment Private Endpoint'",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.13,
+    "unit": "1 Hour",
+    "meter": "Environment Private Endpoint",
+    "sku": "Environment",
+    "product": "Azure Container Apps",
+    "meter_id": "09c62172-6250-58a9-bb56-d74d00e0695c",
+    "region": "spaincentral",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'spaincentral' and priceType eq 'Consumption' and serviceName eq 'Azure Container Apps' and meterName eq 'Environment Private Endpoint'",
+    "fecha": "2026-10-24"
+   }
+  },
+  "az_acr_basic": {
+   "us": {
+    "price": 0.1666,
+    "unit": "1/Day",
+    "meter": "Basic Registry Unit",
+    "sku": "Basic",
+    "product": "Container Registry",
+    "meter_id": "5c9e7a65-5784-494c-9718-7749d4075dd9",
+    "region": "eastus2",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'eastus2' and priceType eq 'Consumption' and serviceName eq 'Container Registry' and meterName eq 'Basic Registry Unit'",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.1666,
+    "unit": "1/Day",
+    "meter": "Basic Registry Unit",
+    "sku": "Basic",
+    "product": "Container Registry",
+    "meter_id": "5c9e7a65-5784-494c-9718-7749d4075dd9",
+    "region": "spaincentral",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'spaincentral' and priceType eq 'Consumption' and serviceName eq 'Container Registry' and meterName eq 'Basic Registry Unit'",
+    "fecha": "2026-10-24"
+   }
+  },
+  "az_vm_d4sv3": {
+   "us": {
+    "price": 0.192,
+    "unit": "1 Hour",
+    "meter": "D4s v3",
+    "sku": "D4s v3",
+    "product": "Virtual Machines DSv3 Series",
+    "meter_id": "aa182a10-b13d-41c5-8028-2cb317e7d050",
+    "region": "eastus2",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'eastus2' and priceType eq 'Consumption' and serviceName eq 'Virtual Machines' and armSkuName eq 'Standard_D4s_v3' and meterName eq 'D4s v3'",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.214,
+    "unit": "1 Hour",
+    "meter": "D4s v3",
+    "sku": "D4s v3",
+    "product": "Virtual Machines DSv3 Series",
+    "meter_id": "5982d81d-54be-5ab8-8dbe-2e8158bfdc65",
+    "region": "spaincentral",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'spaincentral' and priceType eq 'Consumption' and serviceName eq 'Virtual Machines' and armSkuName eq 'Standard_D4s_v3' and meterName eq 'D4s v3'",
+    "fecha": "2026-10-24"
+   }
+  },
+  "az_pg_d2ds": {
+   "us": {
+    "price": 0.178,
+    "unit": "1 Hour",
+    "meter": "vCore",
+    "sku": "2 vCore",
+    "product": "Azure Database for PostgreSQL Flexible Server General Purpose Ddsv5 Series Compute",
+    "meter_id": "e5283e11-5fe1-5b62-85fa-8cdde9820ed8",
+    "region": "eastus2",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'eastus2' and priceType eq 'Consumption' and productName eq 'Azure Database for PostgreSQL Flexible Server General Purpose Ddsv5 Series Compute' and skuName eq '2 vCore'",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.212,
+    "unit": "1 Hour",
+    "meter": "vCore",
+    "sku": "2 vCore",
+    "product": "Azure Database for PostgreSQL Flexible Server General Purpose Ddsv5 Series Compute",
+    "meter_id": "a2a11228-12eb-5c44-811b-19873c2d9e4e",
+    "region": "spaincentral",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'spaincentral' and priceType eq 'Consumption' and productName eq 'Azure Database for PostgreSQL Flexible Server General Purpose Ddsv5 Series Compute' and skuName eq '2 vCore'",
+    "fecha": "2026-10-24"
+   }
+  },
+  "az_pg_storage": {
+   "us": {
+    "price": 0.115,
+    "unit": "1 GB/Month",
+    "meter": "Storage Data Stored",
+    "sku": "Storage",
+    "product": "Azure Database for PostgreSQL Flex Server Storage",
+    "meter_id": "ad50239a-df4f-5c24-8955-066731709372",
+    "region": "eastus2",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'eastus2' and priceType eq 'Consumption' and productName eq 'Azure Database for PostgreSQL Flex Server Storage' and meterName eq 'Storage Data Stored'",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.1369,
+    "unit": "1 GB/Month",
+    "meter": "Storage Data Stored",
+    "sku": "Storage",
+    "product": "Azure Database for PostgreSQL Flex Server Storage",
+    "meter_id": "f11bbd38-9c37-5984-99c4-effec4d0c90e",
+    "region": "spaincentral",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'spaincentral' and priceType eq 'Consumption' and productName eq 'Azure Database for PostgreSQL Flex Server Storage' and meterName eq 'Storage Data Stored'",
+    "fecha": "2026-10-24"
+   }
+  },
+  "az_search_basic": {
+   "us": {
+    "price": 0.101,
+    "unit": "1 Hour",
+    "meter": "Basic Unit",
+    "sku": "Basic",
+    "product": "Azure AI Search",
+    "meter_id": "0c873ca2-4113-4997-8cf6-ad5df5775599",
+    "region": "eastus2",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'eastus2' and priceType eq 'Consumption' and serviceName eq 'Azure Cognitive Search' and meterName eq 'Basic Unit'",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.101,
+    "unit": "1 Hour",
+    "meter": "Basic Unit",
+    "sku": "Basic",
+    "product": "Azure AI Search",
+    "meter_id": "0c873ca2-4113-4997-8cf6-ad5df5775599",
+    "region": "spaincentral",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'spaincentral' and priceType eq 'Consumption' and serviceName eq 'Azure Cognitive Search' and meterName eq 'Basic Unit'",
+    "fecha": "2026-10-24"
+   }
+  },
+  "az_blob_hot_lrs": {
+   "us": {
+    "price": 0.0184,
+    "unit": "1 GB/Month",
+    "meter": "Hot LRS Data Stored",
+    "sku": "Hot LRS",
+    "product": "General Block Blob v2",
+    "meter_id": "10b97fb2-5db4-4ad2-a4e0-69b858d6b52d",
+    "region": "eastus2",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'eastus2' and priceType eq 'Consumption' and productName eq 'General Block Blob v2' and meterName eq 'Hot LRS Data Stored'",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.0184,
+    "unit": "1 GB/Month",
+    "meter": "Hot LRS Data Stored",
+    "sku": "Hot LRS",
+    "product": "General Block Blob v2",
+    "meter_id": "cc820296-b658-5a8c-80e4-578da30422b7",
+    "region": "spaincentral",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'spaincentral' and priceType eq 'Consumption' and productName eq 'General Block Blob v2' and meterName eq 'Hot LRS Data Stored'",
+    "fecha": "2026-10-24"
+   }
+  },
+  "az_blob_cool_lrs": {
+   "us": {
+    "price": 0.01,
+    "unit": "1 GB/Month",
+    "meter": "Cool LRS Data Stored",
+    "sku": "Cool LRS",
+    "product": "General Block Blob v2",
+    "meter_id": "0e03afd6-cb40-4a1b-9938-0bf4aaca3879",
+    "region": "eastus2",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'eastus2' and priceType eq 'Consumption' and productName eq 'General Block Blob v2' and meterName eq 'Cool LRS Data Stored'",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.01,
+    "unit": "1 GB/Month",
+    "meter": "Cool LRS Data Stored",
+    "sku": "Cool LRS",
+    "product": "General Block Blob v2",
+    "meter_id": "013761e8-a5f1-5da6-8e65-af4baf0549e6",
+    "region": "spaincentral",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'spaincentral' and priceType eq 'Consumption' and productName eq 'General Block Blob v2' and meterName eq 'Cool LRS Data Stored'",
+    "fecha": "2026-10-24"
+   }
+  },
+  "az_blob_archive_lrs": {
+   "us": {
+    "price": 0.002,
+    "unit": "1 GB/Month",
+    "meter": "Archive LRS Data Stored",
+    "sku": "Archive LRS",
+    "product": "General Block Blob v2",
+    "meter_id": "438cc16b-da19-49de-ac43-55fe9a99056d",
+    "region": "eastus2",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'eastus2' and priceType eq 'Consumption' and productName eq 'General Block Blob v2' and meterName eq 'Archive LRS Data Stored'",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.0018,
+    "unit": "1 GB/Month",
+    "meter": "Archive LRS Data Stored",
+    "sku": "Archive LRS",
+    "product": "General Block Blob v2",
+    "meter_id": "209d8f65-2c0a-5ed6-97a1-893bdd90b171",
+    "region": "spaincentral",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'spaincentral' and priceType eq 'Consumption' and productName eq 'General Block Blob v2' and meterName eq 'Archive LRS Data Stored'",
+    "fecha": "2026-10-24"
+   }
+  },
+  "az_blob_hot_zrs": {
+   "us": {
+    "price": 0.023,
+    "unit": "1 GB/Month",
+    "meter": "Hot ZRS Data Stored",
+    "sku": "Hot ZRS",
+    "product": "General Block Blob v2",
+    "meter_id": "1c1187d5-03fb-4883-b14c-a254dcb7d5c8",
+    "region": "eastus2",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'eastus2' and priceType eq 'Consumption' and productName eq 'General Block Blob v2' and meterName eq 'Hot ZRS Data Stored'",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.023,
+    "unit": "1 GB/Month",
+    "meter": "Hot ZRS Data Stored",
+    "sku": "Hot ZRS",
+    "product": "General Block Blob v2",
+    "meter_id": "e2150f14-0037-5902-b093-d6a29bb23a56",
+    "region": "spaincentral",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'spaincentral' and priceType eq 'Consumption' and productName eq 'General Block Blob v2' and meterName eq 'Hot ZRS Data Stored'",
+    "fecha": "2026-10-24"
+   }
+  },
+  "az_iothub_s1": {
+   "us": {
+    "price": 25.0,
+    "unit": "1/Month",
+    "meter": "S1 Unit",
+    "sku": "S1",
+    "product": "IoT Hub",
+    "meter_id": "2885a6b2-5013-4fa9-8f3b-fc3ead8d136d",
+    "region": "eastus2",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'eastus2' and priceType eq 'Consumption' and serviceName eq 'IoT Hub' and meterName eq 'S1 Unit'",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 25.0,
+    "unit": "1/Month",
+    "meter": "S1 Unit",
+    "sku": "S1",
+    "product": "IoT Hub",
+    "meter_id": "2885a6b2-5013-4fa9-8f3b-fc3ead8d136d",
+    "region": "westeurope",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'westeurope' and priceType eq 'Consumption' and serviceName eq 'IoT Hub' and meterName eq 'S1 Unit'",
+    "fecha": "2026-10-24"
+   }
+  },
+  "az_def_servers_p2": {
+   "us": {
+    "price": 0.02,
+    "unit": "1/Hour",
+    "meter": "Standard P2 Node",
+    "sku": "Standard P2",
+    "product": "Microsoft Defender for Servers",
+    "meter_id": "0fad698c-40bf-4ee1-a096-565fc6f0cddd",
+    "region": "eastus2",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'eastus2' and priceType eq 'Consumption' and productName eq 'Microsoft Defender for Servers' and meterName eq 'Standard P2 Node'",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.02,
+    "unit": "1/Hour",
+    "meter": "Standard P2 Node",
+    "sku": "Standard P2",
+    "product": "Microsoft Defender for Servers",
+    "meter_id": "0fad698c-40bf-4ee1-a096-565fc6f0cddd",
+    "region": "spaincentral",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'spaincentral' and priceType eq 'Consumption' and productName eq 'Microsoft Defender for Servers' and meterName eq 'Standard P2 Node'",
+    "fecha": "2026-10-24"
+   }
+  },
+  "az_kv_ops": {
+   "us": {
+    "price": 0.03,
+    "unit": "10K",
+    "meter": "Operations",
+    "sku": "Standard",
+    "product": "Key Vault",
+    "meter_id": "0f824807-2376-435c-95c9-f992b67a07b0",
+    "region": "eastus2",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'eastus2' and priceType eq 'Consumption' and serviceName eq 'Key Vault' and skuName eq 'Standard' and meterName eq 'Operations'",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.03,
+    "unit": "10K",
+    "meter": "Operations",
+    "sku": "Standard",
+    "product": "Key Vault",
+    "meter_id": "e3a8df3f-b51b-56d8-8072-7a2a7b54ad90",
+    "region": "spaincentral",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'spaincentral' and priceType eq 'Consumption' and serviceName eq 'Key Vault' and skuName eq 'Standard' and meterName eq 'Operations'",
+    "fecha": "2026-10-24"
+   }
+  },
+  "az_la_ingest": {
+   "us": {
+    "price": 2.76,
+    "unit": "1 GB",
+    "meter": "Analytics Logs Data Ingestion",
+    "sku": "Analytics Logs",
+    "product": "Log Analytics",
+    "meter_id": "ec00a25a-ab14-4b7b-a94f-66581f123295",
+    "region": "eastus2",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'eastus2' and priceType eq 'Consumption' and serviceName eq 'Log Analytics' and meterName eq 'Analytics Logs Data Ingestion'",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 2.99,
+    "unit": "1 GB",
+    "meter": "Analytics Logs Data Ingestion",
+    "sku": "Analytics Logs",
+    "product": "Log Analytics",
+    "meter_id": "5c9dd944-1840-5334-b189-4db4c39ec313",
+    "region": "spaincentral",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'spaincentral' and priceType eq 'Consumption' and serviceName eq 'Log Analytics' and meterName eq 'Analytics Logs Data Ingestion'",
+    "fecha": "2026-10-24"
+   }
+  },
+  "az_def_cont_img": {
+   "us": {
+    "price": 0.29,
+    "unit": "1",
+    "meter": "Standard Images",
+    "sku": "Standard Images",
+    "product": "Microsoft Defender for Containers",
+    "meter_id": "9e34b8de-d9a4-513a-9cf7-f2307f5e1bb1",
+    "region": "eastus2",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'eastus2' and priceType eq 'Consumption' and productName eq 'Microsoft Defender for Containers' and meterName eq 'Standard Images'",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.29,
+    "unit": "1",
+    "meter": "Standard Images",
+    "sku": "Standard Images",
+    "product": "Microsoft Defender for Containers",
+    "meter_id": "9e34b8de-d9a4-513a-9cf7-f2307f5e1bb1",
+    "region": "spaincentral",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'spaincentral' and priceType eq 'Consumption' and productName eq 'Microsoft Defender for Containers' and meterName eq 'Standard Images'",
+    "fecha": "2026-10-24"
+   }
+  },
+  "az_aoai_emb": {
+   "us": {
+    "price": 2e-05,
+    "unit": "1K",
+    "meter": "text-embedding-3-small-glbl Tokens",
+    "sku": "text-embedding-3-small-glbl",
+    "product": "Azure OpenAI",
+    "meter_id": "79411302-3248-56fa-acef-d3c36c861a0f",
+    "region": "eastus2",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'eastus2' and priceType eq 'Consumption' and productName eq 'Azure OpenAI' and meterName eq 'text-embedding-3-small-glbl Tokens'",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 2e-05,
+    "unit": "1K",
+    "meter": "text-embedding-3-small-glbl Tokens",
+    "sku": "text-embedding-3-small-glbl",
+    "product": "Azure OpenAI",
+    "meter_id": "3050e9f9-49d1-5a7b-9e8d-7f29c90edb87",
+    "region": "spaincentral",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'spaincentral' and priceType eq 'Consumption' and productName eq 'Azure OpenAI' and meterName eq 'text-embedding-3-small-glbl Tokens'",
+    "fecha": "2026-10-24"
+   }
+  },
+  "az_aoai_mini_in": {
+   "us": {
+    "price": 0.00044,
+    "unit": "1K",
+    "meter": "gpt 4.1 mini Inp Data Zone Tokens",
+    "sku": "gpt 4.1 mini Inp Data Zone",
+    "product": "Azure OpenAI",
+    "meter_id": "47ae5b46-8901-5596-aa9d-4034169ada57",
+    "region": "eastus2",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'eastus2' and priceType eq 'Consumption' and productName eq 'Azure OpenAI' and meterName eq 'gpt 4.1 mini Inp Data Zone Tokens'",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.00044,
+    "unit": "1K",
+    "meter": "gpt 4.1 mini Inp Data Zone Tokens",
+    "sku": "gpt 4.1 mini Inp Data Zone",
+    "product": "Azure OpenAI",
+    "meter_id": "236ca140-adc8-5d01-9e0e-7ea7cf7f52f7",
+    "region": "spaincentral",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'spaincentral' and priceType eq 'Consumption' and productName eq 'Azure OpenAI' and meterName eq 'gpt 4.1 mini Inp Data Zone Tokens'",
+    "fecha": "2026-10-24"
+   }
+  },
+  "az_aoai_mini_cache": {
+   "us": {
+    "price": 0.00011,
+    "unit": "1K",
+    "meter": "gpt 4.1 mini cached Inp DZone Tokens",
+    "sku": "gpt 4.1 mini cached Inp DZone",
+    "product": "Azure OpenAI",
+    "meter_id": "553f957b-fab4-5bf9-a75a-311c1cc3c0b7",
+    "region": "eastus2",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'eastus2' and priceType eq 'Consumption' and productName eq 'Azure OpenAI' and meterName eq 'gpt 4.1 mini cached Inp DZone Tokens'",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.00011,
+    "unit": "1K",
+    "meter": "gpt 4.1 mini cached Inp DZone Tokens",
+    "sku": "gpt 4.1 mini cached Inp DZone",
+    "product": "Azure OpenAI",
+    "meter_id": "6ae5e43f-c3b8-517d-8bf0-a6dbbffe105e",
+    "region": "spaincentral",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'spaincentral' and priceType eq 'Consumption' and productName eq 'Azure OpenAI' and meterName eq 'gpt 4.1 mini cached Inp DZone Tokens'",
+    "fecha": "2026-10-24"
+   }
+  },
+  "az_aoai_mini_out": {
+   "us": {
+    "price": 0.00176,
+    "unit": "1K",
+    "meter": "gpt 4.1 mini Outp Data Zone Tokens",
+    "sku": "gpt 4.1 mini Outp Data Zone",
+    "product": "Azure OpenAI",
+    "meter_id": "ea5ef174-9e27-572a-8100-ad2bdd917e83",
+    "region": "eastus2",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'eastus2' and priceType eq 'Consumption' and productName eq 'Azure OpenAI' and meterName eq 'gpt 4.1 mini Outp Data Zone Tokens'",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.00176,
+    "unit": "1K",
+    "meter": "gpt 4.1 mini Outp Data Zone Tokens",
+    "sku": "gpt 4.1 mini Outp Data Zone",
+    "product": "Azure OpenAI",
+    "meter_id": "c1eecf43-6075-5b43-b8ac-4554ac555033",
+    "region": "spaincentral",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'spaincentral' and priceType eq 'Consumption' and productName eq 'Azure OpenAI' and meterName eq 'gpt 4.1 mini Outp Data Zone Tokens'",
+    "fecha": "2026-10-24"
+   }
+  },
+  "az_aoai_big_in": {
+   "us": {
+    "price": 0.0022,
+    "unit": "1K",
+    "meter": "gpt 4.1 Inp Data Zone Tokens",
+    "sku": "gpt 4.1 Inp Data Zone",
+    "product": "Azure OpenAI",
+    "meter_id": "cd10788f-5329-53a3-9229-3ef5137fa80e",
+    "region": "eastus2",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'eastus2' and priceType eq 'Consumption' and productName eq 'Azure OpenAI' and meterName eq 'gpt 4.1 Inp Data Zone Tokens'",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.0022,
+    "unit": "1K",
+    "meter": "gpt 4.1 Inp Data Zone Tokens",
+    "sku": "gpt 4.1 Inp Data Zone",
+    "product": "Azure OpenAI",
+    "meter_id": "8f895efe-6bc3-5d49-beea-ba1de5ac3a7b",
+    "region": "spaincentral",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'spaincentral' and priceType eq 'Consumption' and productName eq 'Azure OpenAI' and meterName eq 'gpt 4.1 Inp Data Zone Tokens'",
+    "fecha": "2026-10-24"
+   }
+  },
+  "az_aoai_big_cache": {
+   "us": {
+    "price": 0.00055,
+    "unit": "1K",
+    "meter": "gpt 4.1 cached Inp Data Zone Tokens",
+    "sku": "gpt 4.1 cached Inp Data Zone",
+    "product": "Azure OpenAI",
+    "meter_id": "d852d124-cc2a-5b54-ba95-50a07974b07e",
+    "region": "eastus2",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'eastus2' and priceType eq 'Consumption' and productName eq 'Azure OpenAI' and meterName eq 'gpt 4.1 cached Inp Data Zone Tokens'",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.00055,
+    "unit": "1K",
+    "meter": "gpt 4.1 cached Inp Data Zone Tokens",
+    "sku": "gpt 4.1 cached Inp Data Zone",
+    "product": "Azure OpenAI",
+    "meter_id": "3fed2755-fbbb-5b47-b0be-9a0726374704",
+    "region": "spaincentral",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'spaincentral' and priceType eq 'Consumption' and productName eq 'Azure OpenAI' and meterName eq 'gpt 4.1 cached Inp Data Zone Tokens'",
+    "fecha": "2026-10-24"
+   }
+  },
+  "az_aoai_big_out": {
+   "us": {
+    "price": 0.0088,
+    "unit": "1K",
+    "meter": "gpt 4.1 Outp Data Zone Tokens",
+    "sku": "gpt 4.1 Outp Data Zone",
+    "product": "Azure OpenAI",
+    "meter_id": "ef52573e-d8a3-5c7d-98a7-868ee9f6bc24",
+    "region": "eastus2",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'eastus2' and priceType eq 'Consumption' and productName eq 'Azure OpenAI' and meterName eq 'gpt 4.1 Outp Data Zone Tokens'",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.0088,
+    "unit": "1K",
+    "meter": "gpt 4.1 Outp Data Zone Tokens",
+    "sku": "gpt 4.1 Outp Data Zone",
+    "product": "Azure OpenAI",
+    "meter_id": "093c6c76-ce34-51c1-964f-e98f6c2ea724",
+    "region": "spaincentral",
+    "query": "https://prices.azure.com/api/retail/prices?$filter=armRegionName eq 'spaincentral' and priceType eq 'Consumption' and productName eq 'Azure OpenAI' and meterName eq 'gpt 4.1 Outp Data Zone Tokens'",
+    "fecha": "2026-10-24"
+   }
+  },
+  "aws_fargate_vcpu": {
+   "us": {
+    "price": 0.04048,
+    "unit": "hours",
+    "meter": "USE1-Fargate-vCPU-Hours:perCPU",
+    "sku": "8CESGAFWKAJ98PME",
+    "product": "AmazonECS",
+    "description": "AWS Fargate - vCPU - US East (N.Virginia)",
+    "region": "us-east-1",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonECS/current/us-east-1/index.json",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.046552,
+    "unit": "hours",
+    "meter": "EUS2-Fargate-vCPU-Hours:perCPU",
+    "sku": "UMRZEYF8C2H5Z9XQ",
+    "product": "AmazonECS",
+    "description": "AWS Fargate - vCPU - EU (Spain)",
+    "region": "eu-south-2",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonECS/current/eu-south-2/index.json",
+    "fecha": "2026-10-24"
+   }
+  },
+  "aws_fargate_gb": {
+   "us": {
+    "price": 0.004445,
+    "unit": "hours",
+    "meter": "USE1-Fargate-GB-Hours",
+    "sku": "PBZNQUSEXZUC34C9",
+    "product": "AmazonECS",
+    "description": "AWS Fargate - Memory  - US East (N.Virginia)",
+    "region": "us-east-1",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonECS/current/us-east-1/index.json",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.005112,
+    "unit": "hours",
+    "meter": "EUS2-Fargate-GB-Hours",
+    "sku": "369RDUVMT5DP6PJT",
+    "product": "AmazonECS",
+    "description": "AWS Fargate - Memory  - EU (Spain)",
+    "region": "eu-south-2",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonECS/current/eu-south-2/index.json",
+    "fecha": "2026-10-24"
+   }
+  },
+  "aws_alb_hr": {
+   "us": {
+    "price": 0.0225,
+    "unit": "Hrs",
+    "meter": "LoadBalancerUsage",
+    "sku": "37CUWUT8GSNQEPUV",
+    "product": "AWSELB",
+    "description": "$0.0225 per Application LoadBalancer-hour (or partial hour)",
+    "region": "us-east-1",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSELB/current/us-east-1/index.json",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.0252,
+    "unit": "Hrs",
+    "meter": "EUS2-LoadBalancerUsage",
+    "sku": "X8MXE2X46RMCT7M6",
+    "product": "AWSELB",
+    "description": "USD0.0252 per Hrs for LoadBalancerUsage:LoadBalancing:Application in Europe (Spain)",
+    "region": "eu-south-2",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSELB/current/eu-south-2/index.json",
+    "fecha": "2026-10-24"
+   }
+  },
+  "aws_alb_lcu": {
+   "us": {
+    "price": 0.008,
+    "unit": "LCU-Hrs",
+    "meter": "LCUUsage",
+    "sku": "P2XGEJ8N3KU52WA8",
+    "product": "AWSELB",
+    "description": "$0.008 per used Application load balancer capacity unit-hour (or partial hour)",
+    "region": "us-east-1",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSELB/current/us-east-1/index.json",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.008,
+    "unit": "LCU-Hrs",
+    "meter": "EUS2-LCUUsage",
+    "sku": "WGNWCMFBZX9VQX86",
+    "product": "AWSELB",
+    "description": "USD0.008 per LCU-Hrs for LCUUsage:LoadBalancing:Application in Europe (Spain)",
+    "region": "eu-south-2",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSELB/current/eu-south-2/index.json",
+    "fecha": "2026-10-24"
+   }
+  },
+  "aws_vpce_hr": {
+   "us": {
+    "price": 0.01,
+    "unit": "Hrs",
+    "meter": "USE1-VpcEndpoint-Hours",
+    "sku": "EN2N5TATXE673A3B",
+    "product": "AmazonVPC",
+    "description": "$0.01 per VPC Endpoint Hour",
+    "region": "us-east-1",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonVPC/current/us-east-1/index.json",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.011,
+    "unit": "Hrs",
+    "meter": "EUS2-VpcEndpoint-Hours",
+    "sku": "3NMF7YF6PPAG9EMU",
+    "product": "AmazonVPC",
+    "description": "USD0.011 per Hrs for VpcEndpoint-Hours:VpcEndpoint in Europe (Spain)",
+    "region": "eu-south-2",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonVPC/current/eu-south-2/index.json",
+    "fecha": "2026-10-24"
+   }
+  },
+  "aws_ecr": {
+   "us": {
+    "price": 0.1,
+    "unit": "GB-Mo",
+    "meter": "TimedStorage-ByteHrs",
+    "sku": "KJC988R4J65BDMTQ",
+    "product": "AmazonECR",
+    "description": "$0.10 per GB-month of data storage",
+    "region": "us-east-1",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonECR/current/us-east-1/index.json",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.1,
+    "unit": "GB-Mo",
+    "meter": "EUS2-TimedStorage-ByteHrs",
+    "sku": "29AGJ4R54J9EFSMR",
+    "product": "AmazonECR",
+    "description": "USD0.1 per GB-Mo for TimedStorage-ByteHrs in Europe (Spain)",
+    "region": "eu-south-2",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonECR/current/eu-south-2/index.json",
+    "fecha": "2026-10-24"
+   }
+  },
+  "aws_sm_train": {
+   "us": {
+    "price": 0.115,
+    "unit": "Hrs",
+    "meter": "USE1-Train:ml.m5.large",
+    "sku": "JMCWJEAPVJNFJ5P4",
+    "product": "AmazonSageMaker",
+    "description": "$0.115 per Training ml.m5.large hour in US East (N. Virginia)",
+    "region": "us-east-1",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonSageMaker/current/us-east-1/index.json",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.128,
+    "unit": "Hrs",
+    "meter": "EUS2-Train:ml.m5.large",
+    "sku": "3D652Q54QPCVPDR4",
+    "product": "AmazonSageMaker",
+    "description": "$0.128 per Hrs for Train:ml.m5.large:RunInstance in Europe (Spain)",
+    "region": "eu-south-2",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonSageMaker/current/eu-south-2/index.json",
+    "fecha": "2026-10-24"
+   }
+  },
+  "aws_aurora_acu": {
+   "us": {
+    "price": 0.12,
+    "unit": "ACU-Hr",
+    "meter": "Aurora:ServerlessV2Usage",
+    "sku": "AVKW7ZJP8D72HNQC",
+    "product": "AmazonRDS",
+    "description": "USD 0.12 per Aurora Capacity Unit hour running Aurora PostgreSQL Serverless v2",
+    "region": "us-east-1",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonRDS/current/us-east-1/index.json",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.14,
+    "unit": "ACU-Hr",
+    "meter": "EUS2-Aurora:ServerlessV2Usage",
+    "sku": "M63JJ3UCCQHZND64",
+    "product": "AmazonRDS",
+    "description": "USD 0.14 per Aurora Capacity Unit hour running Aurora PostgreSQL Serverless v2",
+    "region": "eu-south-2",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonRDS/current/eu-south-2/index.json",
+    "fecha": "2026-10-24"
+   }
+  },
+  "aws_aurora_storage": {
+   "us": {
+    "price": 0.1,
+    "unit": "GB-Mo",
+    "meter": "Aurora:StorageUsage",
+    "sku": "7GYUVAA992PFJPCB",
+    "product": "AmazonRDS",
+    "description": "$0.10 per GB-month of consumed storage (Aurora PostgreSQL)",
+    "region": "us-east-1",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonRDS/current/us-east-1/index.json",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.11,
+    "unit": "GB-Mo",
+    "meter": "EUS2-Aurora:StorageUsage",
+    "sku": "68YHH2HPS7QWGBZY",
+    "product": "AmazonRDS",
+    "description": "$0.11 per GB-month of consumed storage (Aurora PostgreSQL)",
+    "region": "eu-south-2",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonRDS/current/eu-south-2/index.json",
+    "fecha": "2026-10-24"
+   }
+  },
+  "aws_s3_std": {
+   "us": {
+    "price": 0.023,
+    "unit": "GB-Mo",
+    "meter": "TimedStorage-ByteHrs",
+    "sku": "WP9ANXZGBYYSGJEA",
+    "product": "AmazonS3",
+    "description": "$0.023 per GB - first 50 TB / month of storage used",
+    "region": "us-east-1",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonS3/current/us-east-1/index.json",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.023,
+    "unit": "GB-Mo",
+    "meter": "EUS2-TimedStorage-ByteHrs",
+    "sku": "J4G6TDWKTHGQ4EUR",
+    "product": "AmazonS3",
+    "description": "$0.023 per GB - first 50 TB / month of storage used in Spain",
+    "region": "eu-south-2",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonS3/current/eu-south-2/index.json",
+    "fecha": "2026-10-24"
+   }
+  },
+  "aws_s3_ia": {
+   "us": {
+    "price": 0.0125,
+    "unit": "GB-Mo",
+    "meter": "TimedStorage-SIA-ByteHrs",
+    "sku": "379GYJUQ5WFBUYGM",
+    "product": "AmazonS3",
+    "description": "$0.0125 per GB-Month of storage used in Standard-Infrequent Access",
+    "region": "us-east-1",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonS3/current/us-east-1/index.json",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.0125,
+    "unit": "GB-Mo",
+    "meter": "EUS2-TimedStorage-SIA-ByteHrs",
+    "sku": "2NYZ5553SJU7CCG3",
+    "product": "AmazonS3",
+    "description": "$0.0125 per GB-Month of storage used in Standard-Infrequent Access in Spain",
+    "region": "eu-south-2",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonS3/current/eu-south-2/index.json",
+    "fecha": "2026-10-24"
+   }
+  },
+  "aws_s3_gda": {
+   "us": {
+    "price": 0.00099,
+    "unit": "GB-Mo",
+    "meter": "TimedStorage-GDA-ByteHrs",
+    "sku": "SKAKWE8C8SPXCVHA",
+    "product": "AmazonS3GlacierDeepArchive",
+    "description": "$0.00099 per GB-Month for storage used in Glacier Deep Archive in US East (N. Virginia)",
+    "region": "us-east-1",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonS3GlacierDeepArchive/current/us-east-1/index.json",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.0018,
+    "unit": "GB-Mo",
+    "meter": "EUS2-TimedStorage-GDA-ByteHrs",
+    "sku": "W2GJ4KRSD4ADCY35",
+    "product": "AmazonS3GlacierDeepArchive",
+    "description": "$0.0018 per GB-Month for storage used in Glacier Deep Archive in Europe (Spain)",
+    "region": "eu-south-2",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonS3GlacierDeepArchive/current/eu-south-2/index.json",
+    "fecha": "2026-10-24"
+   }
+  },
+  "aws_iot_msg": {
+   "us": {
+    "price": 1e-06,
+    "unit": "Messages",
+    "meter": "USE1-Messages",
+    "sku": "PP8GRQ49FFR7BUDX",
+    "product": "AWSIoT",
+    "description": "$1.00 per million messages - first 1 billion messages/month",
+    "region": "us-east-1",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSIoT/current/us-east-1/index.json",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 1e-06,
+    "unit": "Messages",
+    "meter": "EUS2-Messages",
+    "sku": "J7PFFDKT8JUUSRPA",
+    "product": "AWSIoT",
+    "description": "$1.00 per million Messages from 0 to 1,000,000,000 for Messages in Europe (Spain)",
+    "region": "eu-south-2",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSIoT/current/eu-south-2/index.json",
+    "fecha": "2026-10-24"
+   }
+  },
+  "aws_iot_conn": {
+   "us": {
+    "price": 8e-08,
+    "unit": "Minutes",
+    "meter": "USE1-ConnectionMinutes",
+    "sku": "88HVJW32F8EF6KYG",
+    "product": "AWSIoT",
+    "description": "$0.08 per million minutes of connection",
+    "region": "us-east-1",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSIoT/current/us-east-1/index.json",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 8e-08,
+    "unit": "Minutes",
+    "meter": "EUS2-ConnectionMinutes",
+    "sku": "NERKD5RA9ZSC3BZZ",
+    "product": "AWSIoT",
+    "description": "$0.08 per million Minutes for ConnectionMinutes in Europe (Spain)",
+    "region": "eu-south-2",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSIoT/current/eu-south-2/index.json",
+    "fecha": "2026-10-24"
+   }
+  },
+  "aws_greengrass": {
+   "us": {
+    "price": 0.16,
+    "unit": "Active-GGC-Devices",
+    "meter": "USE1-ActiveGGC-Devices",
+    "sku": "H4UXPATZVM7F6RYF",
+    "product": "AWSGreengrass",
+    "description": "$0.16 per Active GGC Device",
+    "region": "us-east-1",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSGreengrass/current/us-east-1/index.json",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.18,
+    "unit": "Active-GGC-Devices",
+    "meter": "EUS2-ActiveGGC-Devices",
+    "sku": "T4QMAKFBHKPY5QVN",
+    "product": "AWSGreengrass",
+    "description": "$0.18 per Active-GGC-Device for SingleNode in Europe (Spain)",
+    "region": "eu-south-2",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSGreengrass/current/eu-south-2/index.json",
+    "fecha": "2026-10-24"
+   }
+  },
+  "aws_secrets": {
+   "us": {
+    "price": 0.4,
+    "unit": "Secrets",
+    "meter": "USE1-AWSSecretsManager-Secrets",
+    "sku": "BJ3PQ9BYGU6P632F",
+    "product": "AWSSecretsManager",
+    "description": "$0.40 per Secret",
+    "region": "us-east-1",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSSecretsManager/current/us-east-1/index.json",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.4,
+    "unit": "Secrets",
+    "meter": "EUS2-AWSSecretsManager-Secrets",
+    "sku": "XUMB6X2XZZXRSFJS",
+    "product": "AWSSecretsManager",
+    "description": "$0.40 per Secret",
+    "region": "eu-south-2",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSSecretsManager/current/eu-south-2/index.json",
+    "fecha": "2026-10-24"
+   }
+  },
+  "aws_cw_logs": {
+   "us": {
+    "price": 0.5,
+    "unit": "GB",
+    "meter": "USE1-DataProcessing-Bytes",
+    "sku": "S8QGXX5R2BKKMDSJ",
+    "product": "AmazonCloudWatch",
+    "description": "$0.50 per GB custom log data ingested in Standard log class - US East (Northern Virginia)",
+    "region": "us-east-1",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonCloudWatch/current/us-east-1/index.json",
+    "fecha": "2026-10-24"
+   },
+   "eu": {
+    "price": 0.57,
+    "unit": "GB",
+    "meter": "EUS2-DataProcessing-Bytes",
+    "sku": "RB6JKDQ5NE5HFZP4",
+    "product": "AmazonCloudWatch",
+    "description": "$0.57 per GB custom log data ingested in Standard log class - Europe (Spain)",
+    "region": "eu-south-2",
+    "query": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonCloudWatch/current/eu-south-2/index.json",
+    "fecha": "2026-10-24"
+   }
+  }
+ }
+}

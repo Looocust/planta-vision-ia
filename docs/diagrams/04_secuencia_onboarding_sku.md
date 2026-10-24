@@ -39,6 +39,9 @@ sequenceDiagram
     end
 ```
 
+Procedimiento de referencia: `docs/sop/SOP-SKU-05_alta_nuevo_sku.md` ([SKU-05.1]–[SKU-05.4]) y canario/rollback en
+`docs/sop/SOP-ML-04_rollback_modelo.md` ([ML-04.1], [ML-04.2]).
+
 En la demo los pasos de staging, aprobación y promoción son reales (endpoints de la API de visión);
 el registro en la nube y el despliegue por anillos al borde son el diseño de producción
 (ver `docs/cloud/azure_architecture.md` §MLOps).

@@ -1,8 +1,10 @@
 # Azure vs AWS para este sistema
 
-> **Recomendación: Azure**, con una salvedad honesta: en el modelo de costos AWS sale **~USD 120/mes más barato por
-> planta** a precio de lista, porque elegimos servicios distintos (no porque el proveedor sea más barato).
-> Esa diferencia es **< 2% del ahorro laboral** que genera una sola estación, así que no decide el caso.
+> **Recomendación: Azure**, con una salvedad honesta: en el modelo de costos AWS sale **~USD 227/mes más barato por
+> planta en EE. UU. y ~USD 277/mes en España** a precio de lista, sobre todo por decisiones de diseño (Private Endpoint del
+> entorno, AI Search, PostgreSQL con HA) y no porque el proveedor sea intrínsecamente más barato. Esa diferencia equivale
+> al **≈ 22% del ahorro mensual en Colombia** (1 estación) y al **≈ 3,6% en España**: en Colombia **sí pesa** y es
+> argumento para recortar el diseño Azure del piloto (ver §3, punto 4).
 > Deciden el encaje con el ecosistema Microsoft del cliente, la gestión unificada del borde y la residencia
 > de datos del LLM.
 
@@ -16,7 +18,7 @@
 | Hospedar agente | Container Apps (escala a cero) | ECS Fargate + ALB | Container Apps más simple y barato en tráfico de turnos |
 | LLM | Azure OpenAI (GPT-4.1 / familias nuevas) | Bedrock (Claude, Nova, Llama, …) | Bedrock da más variedad de modelos; Azure OpenAI da Data Zone UE/EE. UU. muy clara |
 | Guardas del LLM | Content filters + Prompt Shields | Bedrock Guardrails | Equivalentes |
-| Recuperación de SOP | AI Search (híbrido + semántico) | Bedrock Knowledge Bases sobre Aurora pgvector | AI Search mejor calidad híbrida; KB+pgvector más barato |
+| Recuperación de SOP | AI Search (híbrido + semántico) | Bedrock Knowledge Bases sobre Aurora pgvector | AI Search trae búsqueda híbrida + semántica integrada (ventaja de calidad **por validar**); KB+pgvector más barato |
 | Base de datos | PostgreSQL Flexible | Aurora PostgreSQL Serverless v2 | Mismo motor → código portable |
 | Objetos | Blob (Hot/Cool/Archive, inmutabilidad) | S3 (Standard/IA/Deep Archive, Object Lock) | Equivalentes |
 | MLOps | Azure ML (Registry, MLflow, Pipelines) | SageMaker AI (Model Registry, MLflow, Pipelines) | Ambos con MLflow → el repo es portable |
@@ -30,9 +32,9 @@
 
 | Criterio | Azure | AWS | Ganador |
 |---|---|---|---|
-| **Costo nube / planta / mes** (1 estación, lista) | ≈ USD 519 | ≈ USD 397 | AWS (por elección de servicios: AI Search +74, PG con HA +100 vs Aurora 1 ACU) |
-| Costo LLM a igual volumen | ≈ USD 20 (gpt-4.1-mini) | ≈ USD 36 (Claude Haiku 4.5) | Azure |
-| Confianza en los precios del modelo | Mayoría **verificada** en la API pública de precios | **Estimados** de páginas públicas | Azure (en este entregable) |
+| **Costo nube / planta / mes** (1 estación, lista) | ≈ USD 637 (East US 2) · 741 (Spain Central) | ≈ USD 410 (us-east-1) · 464 (eu-south-2) | AWS (por elección de servicios: PE del entorno +73, AI Search +74, PG HA ≈ 275 vs Aurora 2×1 ACU ≈ 175) |
+| Costo LLM a igual volumen | ≈ USD 20 (gpt-4.1-mini, verificado) | ≈ USD 36 (Claude Haiku 4.5, estimado) | Azure |
+| Confianza en los precios del modelo | Mayoría **verificada** (Retail Prices API) | Mayoría **verificada** (Price List Bulk API); Bedrock estimado | Empate |
 | Esfuerzo operativo | Menor: Container Apps escala a cero, Arc unifica el borde | Algo mayor: ALB, NAT, endpoints por AZ | Azure |
 | Madurez en el borde | Alta; Microsoft orienta lo nuevo a **Azure IoT Operations** (Arc + K8s) → riesgo de roadmap para IoT Edge a largo plazo | Alta; Greengrass estable, aunque AWS ha retirado algunos servicios IoT de alto nivel | Empate (vigilar roadmaps) |
 | Disponibilidad de LLM | GPT y modelos de Foundry; Data Zone UE | Claude, Nova, Llama, Mistral…; regiones UE | AWS en variedad; Azure en simplicidad de residencia |
@@ -46,9 +48,10 @@
    sistema se vuelven grupos existentes y las aprobaciones pueden notificarse en Teams. En AWS habría que federar.
 2. **Un solo plano para el borde:** Azure Arc + Defender + IoT Hub cubren inventario, parches, EDR y despliegues de los PC de planta.
 3. **Residencia del LLM** con Data Zone UE para una planta en España, sin pagar capacidad dedicada.
-4. **El costo no decide:** la diferencia de ~USD 120/mes es de diseño. Si se quiere igualar, Azure puede usar
-   pgvector en lugar de AI Search (−74) y PostgreSQL sin HA en piloto (−130). Lo que realmente mueve el caso es el
-   % automatizado y el costo laboral local (ver hoja *Sensibilidad*).
+4. **El costo importa en Colombia, no en España:** la diferencia (~USD 227-277/mes) es de diseño. Para el piloto en
+   Colombia se puede igualar: pgvector en lugar de AI Search (−74), PostgreSQL sin HA (−137), chat publicado con
+   Entra ID en lugar de Private Endpoint del entorno (−73). Aun así, lo que más mueve el caso es el % automatizado y el
+   costo laboral local (ver hoja *Sensibilidad*).
 
 **Cuándo elegiría AWS:** si la empresa ya opera en AWS (cuentas, landing zone, equipo), si quiere libertad para
 cambiar de proveedor de LLM (Claude/Nova/Llama) o si la planta ya usa Greengrass o SiteWise.
