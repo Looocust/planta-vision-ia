@@ -72,8 +72,6 @@ Para detener todo: **Ctrl+C** en la terminal.
 2. En http://localhost:8002 el usuario ya entra solo. Pregunta: *"¿Por qué subieron los rechazos a las 3 a. m.?"*
 3. Escribe *"Pausa la línea P1-L1 para recalibrar la cámara"*. La operación queda **pendiente**. Cambia el usuario a `u_sup2_p1` y apruébala.
 
-El guion completo de la demo está en [`docs/DEMO.md`](docs/DEMO.md).
-
 ### Otros comandos útiles
 
 | Para | Comando |
@@ -105,7 +103,6 @@ En macOS también funcionan los atajos `make up`, `make test` y `make eval`.
 - [`docs/architecture.md`](docs/architecture.md): arquitectura y diagramas (foto → robot, flujo con aprobación humana).
 - [`docs/agent_design.md`](docs/agent_design.md): cómo funciona el copiloto y por qué así.
 - [`docs/report/agent_eval.md`](docs/report/agent_eval.md): evaluación del copiloto (43 casos + 11 de control, costo y fallos).
-- [`docs/validacion/`](docs/validacion/): auditorías independientes de cada parte y cómo se corrigió lo que encontraron.
 
 ## Resultados principales
 
@@ -130,14 +127,14 @@ configs/               umbrales, roles y permisos (sin secretos)
 models/vision-1.0.2/   modelo entrenado y versionado
 eval/agent/            casos de prueba del copiloto
 scripts/start.py       arranque en un comando
-docs/                  reportes, arquitectura, nube, seguridad, auditorías
+docs/                  reportes, arquitectura, nube y seguridad
 ```
 
 **Qué es simulado:** las fotos de planta (se usa el dataset COIL-100, como pide el enunciado), y el robot, la cámara, las métricas y los tickets, que viven en una base SQLite con datos de ejemplo. Los usuarios son de demo; en producción vendrían de Entra ID.
 
 ## Limitaciones conocidas
 
-Las encontraron las auditorías independientes ([`docs/validacion/07_auditoria_final_codex.md`](docs/validacion/07_auditoria_final_codex.md)). Se declaran en vez de ocultarse:
+Lo que todavía no está resuelto, declarado en vez de ocultarse:
 
 - **Desconocidos casi idénticos:** la segunda compuerta de `vision-1.0.2` se diseñó después de ver un fallo en el test, así que su resultado (0,97% de desconocidos aceptados) es optimista. La estimación independiente es 6,4%. Se confirma en el piloto en planta.
 - **Configuración desplegada:** se eligió con validaciones que se cruzan con los tests de otros protocolos. Las cifras independientes son las de la selección anidada (ver el reporte PDF).

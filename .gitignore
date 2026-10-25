@@ -7,5 +7,3 @@ data/runtime/
 .ipynb_checkpoints/
 .pytest_cache/
 .DS_Store
-docs/validacion/.*.log
-docs/validacion/prueba_tecnica.md

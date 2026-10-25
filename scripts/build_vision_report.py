@@ -503,7 +503,7 @@ def build_pdf(out: Path):
             para(("• " if line.startswith("- ") else "") + t, small)
 
     doc = SimpleDocTemplate(str(out), pagesize=A4, leftMargin=1.8 * cm, rightMargin=1.8 * cm, topMargin=1.5 * cm,
-                            bottomMargin=1.5 * cm, title="Reto 2 — Visión COIL-100", author="Equipo IA")
+                            bottomMargin=1.5 * cm, title="Reto 2 — Visión COIL-100", author="Nicolás Mejía")
     doc.build(st)
 
 
