@@ -5,159 +5,391 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Copiloto de línea</title>
 <style>
-  :root { --bg:#f6f7f9; --fg:#1d2330; --muted:#667085; --card:#fff; --acc:#2557d6; --warn:#b54708; --line:#e4e7ec; }
-  * { box-sizing: border-box; }
-  body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--fg); }
-  header { padding:10px 16px; background:var(--card); border-bottom:1px solid var(--line); display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-  header h1 { font-size:16px; margin:0 12px 0 0; }
-  select, input, button, textarea { font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; }
-  button { background:var(--acc); color:#fff; border:none; cursor:pointer; }
-  button.secondary { background:#fff; color:var(--fg); border:1px solid var(--line); }
-  main { display:grid; grid-template-columns: 1fr 320px; gap:12px; padding:12px 16px; max-width:1200px; margin:0 auto; }
-  @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
-  #log { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px; height:62vh; overflow:auto; }
-  .msg { margin:8px 0; white-space:pre-wrap; }
-  .user { color:var(--acc); }
-  .meta { color:var(--muted); font-size:12px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:12px; }
-  .ap { border-left:3px solid var(--warn); padding-left:8px; margin:8px 0; }
-  form { display:flex; gap:8px; margin-top:8px; }
-  textarea { flex:1; min-height:44px; }
+  /* Paleta de planta: acero azul para la marca, ámbar para lo que pide atención humana. */
+  :root {
+    --bg:#f2f5f7; --surface:#ffffff; --surface-2:#f7f9fa; --ink:#15202a; --muted:#5f6d78; --line:#dde3e8;
+    --brand:#1f6f8b; --brand-ink:#ffffff; --brand-soft:#e4f0f4;
+    --amber:#c76f00; --amber-soft:#fdf1e1; --ok:#23784a; --ok-soft:#e5f4ea; --bad:#b3372d; --bad-soft:#fbe9e7;
+    --shadow:0 1px 2px rgba(16,32,43,.06), 0 4px 16px rgba(16,32,43,.06);
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) { :root {
+    --bg:#0f161b; --surface:#16212a; --surface-2:#1b2731; --ink:#e3eaef; --muted:#93a3ae; --line:#283742;
+    --brand:#4ea8c7; --brand-ink:#08141a; --brand-soft:#173241;
+    --amber:#f0a03a; --amber-soft:#3a2a12; --ok:#5fbf86; --ok-soft:#173326; --bad:#ec7a6f; --bad-soft:#3a1d1a;
+    --shadow:none; color-scheme:dark; } }
+  * { box-sizing:border-box; }
+  html, body { height:100%; }
+  body { margin:0; font:15px/1.5 var(--font); background:var(--bg); color:var(--ink); display:flex; flex-direction:column; }
+  button, select, input, textarea { font:inherit; color:inherit; }
+  button { cursor:pointer; }
+  :focus-visible { outline:2px solid var(--brand); outline-offset:2px; }
+
+  /* Barra superior */
+  .top { background:var(--surface); border-bottom:1px solid var(--line); padding:12px 20px; display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+  .brand { display:flex; align-items:center; gap:10px; margin-right:auto; }
+  .logo { width:34px; height:34px; border-radius:9px; background:var(--brand); color:var(--brand-ink); display:grid; place-items:center; font-weight:800; font-size:15px; letter-spacing:.02em; }
+  .brand h1 { font-size:17px; margin:0; line-height:1.2; }
+  .brand small { display:block; color:var(--muted); font-size:12.5px; }
+  .ctx { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .field { display:flex; flex-direction:column; gap:2px; font-size:11.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+  .field select { text-transform:none; letter-spacing:0; font-size:14px; padding:6px 30px 6px 10px; border:1px solid var(--line); border-radius:8px; background:var(--surface-2); min-width:120px; }
+  .status { display:flex; align-items:center; gap:8px; padding:6px 12px; border-radius:999px; background:var(--surface-2); border:1px solid var(--line); font-size:13px; white-space:nowrap; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--muted); }
+  .status.on .dot { background:var(--ok); box-shadow:0 0 0 3px var(--ok-soft); }
+  .status.err .dot { background:var(--bad); }
+
+  /* Distribución */
+  .wrap { flex:1; min-height:0; display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:20px; padding:20px; max-width:1280px; width:100%; margin:0 auto; }
+  @media (max-width:900px) {
+    body { display:block; }
+    .wrap { grid-template-columns:minmax(0,1fr); padding:14px; }
+    .chat { height:78vh; }
+  }
+  .chat { display:flex; flex-direction:column; min-height:0; background:var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); overflow:hidden; }
+  #log { flex:1; min-height:320px; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:14px; }
+  @media (min-width:901px) { .chat { height:calc(100vh - 110px); } }
+
+  /* Bienvenida */
+  .welcome { margin:auto; max-width:520px; text-align:center; padding:12px; }
+  .welcome h2 { margin:0 0 6px; font-size:22px; }
+  .welcome p { color:var(--muted); margin:0 0 16px; }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; }
+  .chip { border:1px solid var(--line); background:var(--surface-2); border-radius:999px; padding:8px 14px; font-size:14px; text-align:left; }
+  .chip:hover { border-color:var(--brand); background:var(--brand-soft); }
+
+  /* Mensajes */
+  .row { display:flex; gap:10px; align-items:flex-end; max-width:100%; }
+  .row.me { justify-content:flex-end; }
+  .avatar { flex:none; width:30px; height:30px; border-radius:50%; display:grid; place-items:center; font-size:12px; font-weight:700; background:var(--brand-soft); color:var(--brand); }
+  .bubble { max-width:min(680px, 85%); padding:11px 15px; border-radius:16px; overflow-wrap:anywhere; }
+  .me .bubble { background:var(--brand); color:var(--brand-ink); border-bottom-right-radius:5px; white-space:pre-wrap; }
+  .bot .bubble { background:var(--surface-2); border:1px solid var(--line); border-bottom-left-radius:5px; }
+  .bubble p { margin:0 0 8px; } .bubble p:last-child { margin-bottom:0; }
+  .bubble ul { margin:4px 0 8px; padding-left:20px; } .bubble li { margin:2px 0; }
+  .bubble code { font-family:var(--mono); font-size:.88em; background:var(--surface); border:1px solid var(--line); padding:0 4px; border-radius:4px; }
+  .bubble a { color:var(--brand); }
+  .meta { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; font-size:12px; color:var(--muted); align-items:center; }
+  .tool { background:var(--brand-soft); color:var(--brand); border-radius:6px; padding:2px 8px; font-weight:600; }
+  .tool.bad { background:var(--bad-soft); color:var(--bad); }
+  .gallery { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .gallery figure { margin:0; text-align:center; font-size:11px; color:var(--muted); }
+  .gallery img { width:76px; height:76px; object-fit:cover; border-radius:8px; border:1px solid var(--line); background:#000; display:block; }
+  .notice { align-self:center; max-width:90%; font-size:13.5px; padding:8px 14px; border-radius:10px; background:var(--amber-soft); color:var(--ink); border:1px solid var(--line); }
+  .notice.ok { background:var(--ok-soft); } .notice.err { background:var(--bad-soft); }
+  .typing { display:inline-flex; gap:4px; align-items:center; color:var(--muted); font-size:13.5px; }
+  .typing i { width:6px; height:6px; border-radius:50%; background:var(--muted); animation:b 1.2s infinite ease-in-out; }
+  .typing i:nth-child(2) { animation-delay:.15s } .typing i:nth-child(3) { animation-delay:.3s }
+  @keyframes b { 0%,80%,100% { opacity:.25; transform:translateY(0) } 40% { opacity:1; transform:translateY(-3px) } }
+  @media (prefers-reduced-motion:reduce) { .typing i { animation:none; } }
+
+  /* Escritura */
+  .composer { border-top:1px solid var(--line); padding:12px 14px; background:var(--surface); }
+  .attached { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
+  .attached:empty { display:none; }
+  .thumb { position:relative; }
+  .thumb img { width:52px; height:52px; object-fit:cover; border-radius:8px; border:1px solid var(--line); display:block; }
+  .thumb button { position:absolute; top:-6px; right:-6px; width:20px; height:20px; border-radius:50%; border:none; background:var(--ink); color:var(--surface); font-size:12px; line-height:20px; padding:0; }
+  .inputbar { display:flex; gap:8px; align-items:flex-end; }
+  .attach { flex:none; width:42px; height:42px; border-radius:10px; border:1px solid var(--line); background:var(--surface-2); display:grid; place-items:center; color:var(--muted); }
+  .attach:hover { border-color:var(--brand); color:var(--brand); }
+  #msg { flex:1; resize:none; min-height:42px; max-height:160px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:var(--surface-2); }
+  #send { flex:none; height:42px; padding:0 18px; border:none; border-radius:10px; background:var(--brand); color:var(--brand-ink); font-weight:600; }
+  #send:disabled { opacity:.5; cursor:default; }
+  .hint { font-size:12px; color:var(--muted); margin-top:6px; }
+
+  /* Panel lateral */
+  aside { display:flex; flex-direction:column; gap:16px; min-width:0; }
+  .panel { background:var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); padding:16px; }
+  .panel h3 { margin:0; font-size:15px; display:flex; align-items:center; gap:8px; }
+  .count { font-size:12px; font-weight:700; background:var(--amber); color:#fff; border-radius:999px; padding:0 8px; }
+  .count.zero { background:var(--line); color:var(--muted); }
+  .panel .sub { font-size:13px; color:var(--muted); margin:4px 0 10px; }
+  .item { border:1px solid var(--line); border-left:4px solid var(--amber); border-radius:10px; padding:10px 12px; margin-top:10px; background:var(--surface-2); font-size:14px; }
+  .item b { display:block; }
+  .item .small { font-size:12.5px; color:var(--muted); margin-top:2px; }
+  .actions { display:flex; gap:8px; margin-top:10px; }
+  .btn { flex:1; border-radius:8px; padding:7px 10px; font-weight:600; font-size:13.5px; }
+  .btn.ok { background:var(--ok); color:#fff; border:none; }
+  .btn.no { background:transparent; border:1px solid var(--line); }
+  .btn.no:hover { border-color:var(--bad); color:var(--bad); }
+  .empty { font-size:13.5px; color:var(--muted); padding:8px 0 0; }
+  .linkbtn { margin-left:auto; border:none; background:none; color:var(--brand); font-size:13px; padding:0; }
+  .foot { font-size:12px; color:var(--muted); }
+  .foot code { font-family:var(--mono); }
 </style>
 </head>
 <body>
-<header>
-  <h1>Copiloto operativo</h1>
-  <label>Usuario <select id="user"></select></label>
-  <label>Planta <select id="plant"><option>P1</option><option>P2</option></select></label>
-  <label>Línea <select id="line"><option>P1-L1</option><option>P1-L2</option><option>P2-L1</option></select></label>
-  <button type="button" id="login">Entrar (demo)</button>
-  <span class="meta" id="who">sin sesión</span>
-  <label>Sesión <input id="session" size="10"></label>
+<header class="top">
+  <div class="brand">
+    <div class="logo" aria-hidden="true">PP</div>
+    <div><h1>Copiloto de línea</h1><small>Visión + asistente para la línea de pick &amp; pack</small></div>
+  </div>
+  <div class="ctx">
+    <label class="field">Quién eres <select id="user"></select></label>
+    <label class="field">Planta <select id="plant"><option>P1</option><option>P2</option></select></label>
+    <label class="field">Línea <select id="line"></select></label>
+    <div class="status" id="status" role="status"><span class="dot"></span><span id="who">Conectando…</span></div>
+    <button type="button" id="login" hidden>Entrar</button>
+  </div>
 </header>
-<main>
-  <section>
-    <div id="log"></div>
-    <form id="f">
-      <textarea id="msg" placeholder="Ej.: ¿Por qué subieron los rechazos a las 3 a. m.?"></textarea>
-      <button>Enviar</button>
+
+<div class="wrap">
+  <section class="chat" aria-label="Conversación">
+    <div id="log" aria-live="polite">
+      <div class="welcome" id="welcome">
+        <h2>¿En qué te ayudo con la línea?</h2>
+        <p>Puedo revisar fotos, explicar qué pasó en un turno, buscar en los procedimientos, crear tickets y preparar operaciones que otra persona aprueba.</p>
+        <div class="chips">
+          <button class="chip" type="button">¿Por qué subieron los rechazos a las 3 a. m.?</button>
+          <button class="chip" type="button">¿Cómo va el turno 2?</button>
+          <button class="chip" type="button">Hay agarres fallidos en la línea, ¿qué hago?</button>
+          <button class="chip" type="button">Genera el reporte de entrega de turno</button>
+          <button class="chip" type="button">Pausa la línea P1-L1 para recalibrar la cámara</button>
+        </div>
+      </div>
+    </div>
+    <form class="composer" id="f">
+      <div class="attached" id="attached"></div>
+      <div class="inputbar">
+        <label class="attach" title="Adjuntar fotos" for="file">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="m21 17-5-5-8 7"/></svg>
+          <span class="sr" hidden>Adjuntar fotos</span>
+        </label>
+        <input type="file" id="file" accept="image/png,image/jpeg" multiple hidden>
+        <textarea id="msg" rows="1" placeholder="Escribe tu pregunta…"></textarea>
+        <button id="send" type="submit">Enviar</button>
+      </div>
+      <div class="hint">Enter envía · Shift+Enter hace un salto de línea · Las fotos adjuntas se inspeccionan con el modelo de visión</div>
     </form>
-    <div class="meta">Imágenes adjuntas: <span id="imgs">ninguna</span></div>
   </section>
+
   <aside>
-    <div class="card">
-      <b>Subir imágenes</b><br>
-      <input type="file" id="file" accept="image/png,image/jpeg" multiple>
+    <div class="panel">
+      <h3>Aprobaciones pendientes <span class="count zero" id="apsCount">0</span><button class="linkbtn" id="refresh" type="button">Actualizar</button></h3>
+      <div class="sub">Operaciones de riesgo que esperan a otra persona autorizada. Nada se ejecuta sin aprobación.</div>
+      <div id="aps"><div class="empty">Sin pendientes</div></div>
     </div>
-    <div class="card">
-      <b>Etiquetas por confirmar</b>
-      <div class="meta">El agente solo propone; tú confirmas lo que ves.</div>
-      <div id="labels"></div>
+    <div class="panel">
+      <h3>Etiquetas por confirmar <span class="count zero" id="labelsCount">0</span></h3>
+      <div class="sub">El asistente solo propone. Tú confirmas lo que ves antes de que entre al reentrenamiento.</div>
+      <div id="labels"><div class="empty">Sin pendientes</div></div>
     </div>
-    <div class="card">
-      <b>Aprobaciones pendientes</b>
-      <button class="secondary" id="refresh" type="button">Actualizar</button>
-      <div id="aps"></div>
-    </div>
+    <div class="foot">Sesión <code id="sessionLabel"></code> · Usuarios de demo; en producción el acceso es con Entra ID.</div>
+    <input id="session" type="hidden">
   </aside>
-</main>
+</div>
+
 <script>
-const USERS = {u_op_p1:"operator",u_sup_p1:"supervisor",u_sup2_p1:"supervisor",u_qa_p1:"quality",u_mnt_p1:"maintenance",
-  u_ml:"ml_engineer",u_pm_p1:"plant_manager",u_sup_p2:"supervisor",u_pm_p2:"plant_manager"};
+// Usuarios de demo (configs/roles.yaml). La identidad real la fija el token firmado del servidor.
+const USERS = {
+  u_sup_p1:["Supervisora turno P1","supervisor",["P1"]], u_sup2_p1:["Supervisor relevo P1","supervisor",["P1"]],
+  u_op_p1:["Operador P1","operator",["P1"]], u_qa_p1:["Calidad P1","quality",["P1"]],
+  u_mnt_p1:["Mantenimiento P1","maintenance",["P1"]], u_ml:["Ingeniero de ML","ml_engineer",["P1","P2"]],
+  u_pm_p1:["Gerente planta P1","plant_manager",["P1"]], u_sup_p2:["Supervisor P2","supervisor",["P2"]],
+  u_pm_p2:["Gerente planta P2","plant_manager",["P2"]]};
+const ROLES = {operator:"Operador", supervisor:"Supervisor", quality:"Calidad", maintenance:"Mantenimiento", ml_engineer:"Ingeniería ML", plant_manager:"Gerente"};
+const LINES = {P1:["P1-L1","P1-L2"], P2:["P2-L1"]};
+const TOOLS = {inspect_images:"Inspeccionar fotos", get_line_metrics:"Métricas de línea", get_camera_health:"Salud de cámara",
+  get_robot_events:"Eventos del robot", search_procedures:"Procedimientos", list_tickets:"Tickets", create_ticket:"Crear ticket",
+  escalate_ticket:"Escalar ticket", list_review_queue:"Cola de revisión", submit_review_label:"Proponer etiqueta",
+  enqueue_for_review:"Enviar a revisión", get_model_versions:"Versiones del modelo", stage_new_sku:"Alta de producto",
+  request_risky_operation:"Solicitar aprobación", generate_shift_report:"Reporte de turno", save_user_preference:"Guardar preferencia"};
+const OPS = {pause_line:"Pausar la línea", resume_line:"Reanudar la línea", manual_angle:"Ángulo manual al robot",
+  set_threshold:"Cambiar umbral del modelo", promote_model:"Promover versión del modelo"};
+
 const $ = id => document.getElementById(id);
-for (const [u,r] of Object.entries(USERS)) { const o=document.createElement("option"); o.value=u; o.textContent=`${u} (${r})`; $("user").appendChild(o); }
+for (const [u,[name,role]] of Object.entries(USERS)) {
+  const o=document.createElement("option"); o.value=u; o.textContent=`${name} · ${ROLES[role]}`; $("user").appendChild(o);
+}
 $("user").value = "u_sup_p1";
 $("session").value = "web-" + Math.random().toString(36).slice(2,8);
-let pending = [];
-let TOKEN = null;  // identidad verificada: token firmado emitido por /v1/auth/demo-login (prod: Entra ID OIDC)
+$("sessionLabel").textContent = $("session").value;
+function fillLines() { $("line").textContent=""; for (const l of LINES[$("plant").value]) { const o=document.createElement("option"); o.textContent=l; $("line").appendChild(o); } }
+fillLines();
+
+let pending = [];      // {id, url}
+let TOKEN = null;      // token firmado emitido por /v1/auth/demo-login (prod: Entra ID OIDC)
+let busy = false;
 const who = () => ({plant_id:$("plant").value, line_id:$("line").value});
 const auth = () => TOKEN ? {"Authorization": "Bearer " + TOKEN} : {};
-$("user").onchange = () => { TOKEN = null; $("who").textContent = "entrando…"; $("login").click(); };
-$("login").onclick = async () => {
-  const r = await fetch("/v1/auth/demo-login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user_id:$("user").value})});
-  const j = await r.json();
-  if (!r.ok) { add("Login: "+JSON.stringify(j.detail), "meta"); return; }
-  TOKEN = j.token; $("who").textContent = `${j.user_id} (${j.role}) · plantas ${j.plants.join(",")}`; loadAps();
+
+function setStatus(text, cls) { $("who").textContent = text; $("status").className = "status " + (cls||""); }
+
+$("user").onchange = () => {
+  TOKEN = null; const plants = USERS[$("user").value][2];
+  if (!plants.includes($("plant").value)) { $("plant").value = plants[0]; fillLines(); }
+  $("login").click();
 };
-// Demo: entra automáticamente con el usuario seleccionado al abrir la página.
+$("plant").onchange = () => { fillLines(); loadAps(); };
+$("line").onchange = loadAps;
+$("login").onclick = async () => {
+  setStatus("Conectando…");
+  try {
+    const r = await fetch("/v1/auth/demo-login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user_id:$("user").value})});
+    const j = await r.json();
+    if (!r.ok) { setStatus("Sin acceso", "err"); notice("No se pudo iniciar sesión: " + detail(j), "err"); return; }
+    TOKEN = j.token;
+    setStatus(`${USERS[j.user_id]?.[0] || j.user_id} · plantas ${j.plants.join(", ")}`, "on");
+    loadAps();
+  } catch { setStatus("Sin conexión", "err"); }
+};
 window.addEventListener("load", () => $("login").click());
-function add(text, cls, meta) {  // textContent: la salida del LLM nunca se interpreta como HTML
-  const d=document.createElement("div"); d.className="msg "+(cls||""); d.textContent=text; $("log").appendChild(d);
-  // evidencia: vistas similares del servicio de visión (solo URLs /v1/images/objN__A)
-  const urls = [...new Set((text||"").match(/https?:\/\/[\w.:-]+\/v1\/images\/obj\d+__\d+/g) || [])].slice(0,6);
-  if (urls.length) { const g=document.createElement("div"); for (const u of urls) { const im=document.createElement("img"); im.src=u; im.width=64; im.title=u.split("/").pop(); im.style.marginRight="4px"; g.appendChild(im);} $("log").appendChild(g); }
-  // evidencia de cargas propias: requiere token, se descarga con Authorization y se muestra como blob
-  const ups = [...new Set((text||"").match(/\/v1\/uploads\/img_[a-f0-9]{12}\?plant_id=P\d/g) || [])].slice(0,6);
-  for (const u of ups) {
-    fetch(u,{headers:auth()}).then(r => r.ok ? r.blob() : null).then(b => { if (!b) return;
-      const im=document.createElement("img"); im.src=URL.createObjectURL(b); im.width=64; im.title=u; $("log").appendChild(im); });
+
+const detail = j => typeof j?.detail === "string" ? j.detail : (j?.detail?.message || JSON.stringify(j?.detail ?? j));
+
+// Markdown mínimo y seguro: se escapa todo el HTML antes de dar formato (la salida del LLM nunca se interpreta como HTML).
+function md(text) {
+  const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const inline = s => esc(s)
+    .replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\s][^*]*?)\*(?!\*)/g,"$1<em>$2</em>")
+    .replace(/`([^`]+)`/g,"<code>$1</code>")
+    .replace(/(https?:\/\/[^\s)<]+)/g,'<a href="$1" target="_blank" rel="noopener">$1</a>');
+  const out = []; let list = null;
+  for (const raw of (text||"").split("\n")) {
+    const line = raw.trimEnd(); const m = line.match(/^\s*(?:[*\-•]|\d+\.)\s+(.*)$/);
+    if (m) { if (!list) { list = []; } list.push(`<li>${inline(m[1])}</li>`); continue; }
+    if (list) { out.push(`<ul>${list.join("")}</ul>`); list = null; }
+    if (!line.trim()) continue;
+    const h = line.match(/^#{1,4}\s+(.*)$/);
+    out.push(h ? `<p><strong>${inline(h[1])}</strong></p>` : `<p>${inline(line)}</p>`);
   }
-  if (meta) { const m=document.createElement("div"); m.className="meta"; m.textContent=meta; $("log").appendChild(m); }
-  $("log").scrollTop = 1e9;
+  if (list) out.push(`<ul>${list.join("")}</ul>`);
+  return out.join("");
+}
+
+function hideWelcome() { $("welcome")?.remove(); }
+function scroll() { $("log").scrollTop = 1e9; }
+function notice(text, cls) {
+  hideWelcome(); const d=document.createElement("div"); d.className="notice " + (cls||""); d.textContent=text; $("log").appendChild(d); scroll();
+}
+function userMsg(text, imgs) {
+  hideWelcome();
+  const row=document.createElement("div"); row.className="row me";
+  const b=document.createElement("div"); b.className="bubble"; b.textContent=text;
+  if (imgs.length) { const g=document.createElement("div"); g.className="gallery"; for (const p of imgs) { const im=document.createElement("img"); im.src=p.url; im.alt="foto adjunta"; g.appendChild(im); } b.appendChild(g); }
+  row.appendChild(b); $("log").appendChild(row); scroll();
+}
+function botMsg(text, tools, usage) {
+  const row=document.createElement("div"); row.className="row bot";
+  const av=document.createElement("div"); av.className="avatar"; av.textContent="IA"; row.appendChild(av);
+  const b=document.createElement("div"); b.className="bubble"; b.innerHTML = md(text);
+  // Evidencia: vistas de referencia del servicio de visión y fotos subidas (estas requieren token).
+  const refs = [...new Set((text||"").match(/https?:\/\/[\w.:-]+\/v1\/images\/obj\d+__\d+/g) || [])].slice(0,6);
+  const ups = [...new Set((text||"").match(/\/v1\/uploads\/img_[a-f0-9]{12}\?plant_id=P\d/g) || [])].slice(0,6);
+  if (refs.length || ups.length) {
+    const g=document.createElement("div"); g.className="gallery";
+    for (const u of refs) { const f=document.createElement("figure"); const im=document.createElement("img"); im.src=u; im.alt=u.split("/").pop(); f.appendChild(im); f.append(u.split("/").pop().replace("__"," · ")+"°"); g.appendChild(f); }
+    for (const u of ups) fetch(u,{headers:auth()}).then(r => r.ok ? r.blob() : null).then(bl => { if (!bl) return;
+      const f=document.createElement("figure"); const im=document.createElement("img"); im.src=URL.createObjectURL(bl); im.alt="foto subida"; f.appendChild(im); f.append("tu foto"); g.prepend(f); });
+    b.appendChild(g);
+  }
+  if (tools?.length || usage) {
+    const m=document.createElement("div"); m.className="meta";
+    for (const t of tools||[]) { const s=document.createElement("span"); s.className="tool" + (t.status==="ok" ? "" : " bad"); s.textContent=(TOOLS[t.tool]||t.tool) + (t.status==="ok" ? "" : " ✕"); s.title=`${t.tool}: ${t.status}${t.reason?" ("+t.reason+")":""}`; m.appendChild(s); }
+    if (usage) { const s=document.createElement("span"); s.textContent=`· ${usage.input_tokens+usage.output_tokens} tokens · US$ ${Number(usage.cost_usd).toFixed(4)}`; m.appendChild(s); }
+    b.appendChild(m);
+  }
+  row.appendChild(b); $("log").appendChild(row); scroll();
+}
+function typing() {
+  const row=document.createElement("div"); row.className="row bot"; row.id="typing";
+  row.innerHTML='<div class="avatar">IA</div><div class="bubble"><span class="typing"><i></i><i></i><i></i>&nbsp; Consultando la línea…</span></div>';
+  $("log").appendChild(row); scroll();
+}
+
+function renderAttached() {
+  const box=$("attached"); box.textContent="";
+  pending.forEach((p,i) => { const t=document.createElement("div"); t.className="thumb";
+    const im=document.createElement("img"); im.src=p.url; im.alt="foto adjunta"; t.appendChild(im);
+    const x=document.createElement("button"); x.type="button"; x.textContent="×"; x.title="Quitar"; x.onclick=()=>{ pending.splice(i,1); renderAttached(); };
+    t.appendChild(x); box.appendChild(t); });
 }
 $("file").onchange = async e => {
   for (const f of e.target.files) {
     const fd = new FormData(); fd.append("file", f); const w=who();
     for (const k of ["plant_id","line_id"]) fd.append(k, w[k]);
-    const r = await fetch("/v1/uploads",{method:"POST",body:fd,headers:auth()}); const j=await r.json();
-    if (r.ok) pending.push(j.image_id); else add("Error al subir: "+JSON.stringify(j.detail), "meta");
+    try {
+      const r = await fetch("/v1/uploads",{method:"POST",body:fd,headers:auth()}); const j=await r.json();
+      if (r.ok) pending.push({id:j.image_id, url:URL.createObjectURL(f)}); else notice("No se pudo subir la foto: " + detail(j), "err");
+    } catch { notice("No se pudo subir la foto: sin conexión con el servidor", "err"); }
   }
-  $("imgs").textContent = pending.join(", ") || "ninguna";
+  e.target.value=""; renderAttached();
 };
-$("f").onsubmit = async e => {
-  e.preventDefault(); const text=$("msg").value.trim(); if(!text) return;
-  add("> "+text, "user"); $("msg").value="";
-  const body = {...who(), session_id:$("session").value, message:text, image_ids:pending};
-  pending=[]; $("imgs").textContent="ninguna";
-  const r = await fetch("/v1/chat",{method:"POST",headers:{"Content-Type":"application/json",...auth()},body:JSON.stringify(body)});
-  const j = await r.json();
-  if (!r.ok) { add("Error: "+JSON.stringify(j.detail), "meta"); return; }
-  const tools = (j.tool_calls||[]).map(t=>`${t.tool}:${t.status}${t.reason?"("+t.reason+")":""}`).join(", ");
-  add(j.reply, "", `tools: ${tools||"-"} · tokens ${j.usage.input_tokens}/${j.usage.output_tokens} · $${j.usage.cost_usd}`);
-  loadAps();
-};
+
+async function send(text) {
+  if (busy || !text.trim()) return;
+  if (!TOKEN) { await $("login").onclick(); if (!TOKEN) return; }
+  busy = true; $("send").disabled = true;
+  const imgs = pending; pending = []; renderAttached();
+  userMsg(text, imgs); $("msg").value=""; autosize(); typing();
+  const body = {...who(), session_id:$("session").value, message:text, image_ids:imgs.map(p=>p.id)};
+  try {
+    const r = await fetch("/v1/chat",{method:"POST",headers:{"Content-Type":"application/json",...auth()},body:JSON.stringify(body)});
+    const j = await r.json(); $("typing")?.remove();
+    if (!r.ok) notice("No se pudo responder: " + detail(j), "err");
+    else botMsg(j.reply, j.tool_calls, j.usage);
+  } catch { $("typing")?.remove(); notice("Sin conexión con el servidor. ¿Sigue corriendo scripts/start.py?", "err"); }
+  busy = false; $("send").disabled = false; $("msg").focus(); loadAps();
+}
+$("f").onsubmit = e => { e.preventDefault(); send($("msg").value); };
+$("msg").addEventListener("keydown", e => { if (e.key==="Enter" && !e.shiftKey) { e.preventDefault(); send($("msg").value); } });
+function autosize() { const t=$("msg"); t.style.height="auto"; t.style.height=Math.min(t.scrollHeight,160)+"px"; }
+$("msg").addEventListener("input", autosize);
+document.querySelectorAll(".chip").forEach(c => c.onclick = () => send(c.textContent));
+
+function setCount(id, n) { const c=$(id); c.textContent=n; c.className="count" + (n ? "" : " zero"); }
+function item(title, lines, buttons) {
+  const d=document.createElement("div"); d.className="item";
+  const b=document.createElement("b"); b.textContent=title; d.appendChild(b);
+  for (const l of lines) { const s=document.createElement("div"); s.className="small"; s.textContent=l; d.appendChild(s); }
+  const a=document.createElement("div"); a.className="actions";
+  for (const [label,cls,fn] of buttons) { const bt=document.createElement("button"); bt.type="button"; bt.className="btn "+cls; bt.textContent=label; bt.onclick=fn; a.appendChild(bt); }
+  d.appendChild(a); return d;
+}
+function params(p) { try { const o = typeof p==="string" ? JSON.parse(p) : p; const s=Object.entries(o||{}).map(([k,v])=>`${k}: ${v}`).join(", "); return s ? `Parámetros: ${s}` : ""; } catch { return p ? `Parámetros: ${p}` : ""; } }
+
 async function loadAps() {
   if (!TOKEN) return;
-  const w=who(); const q=new URLSearchParams({plant_id:w.plant_id});
+  const q=new URLSearchParams({plant_id:who().plant_id});
   loadLabels(q);
-  const r = await fetch("/v1/approvals?"+q,{headers:auth()}); const box=$("aps"); box.textContent="";
-  if (!r.ok) return; const j=await r.json();
-  for (const a of j.pending) {
-    const d=document.createElement("div"); d.className="ap";
-    d.textContent = `${a.approval_id} · ${a.operation} ${a.params} · ${a.line_id} · por ${a.requested_by}: ${a.justification}`;
-    for (const dec of ["approve","reject"]) {
-      const b=document.createElement("button"); b.type="button"; b.textContent = dec==="approve"?"Aprobar":"Rechazar";
-      if (dec==="reject") b.className="secondary";
-      b.onclick = async () => {
-        const rr = await fetch(`/v1/approvals/${a.approval_id}`,{method:"POST",headers:{"Content-Type":"application/json",...auth()},
-          body:JSON.stringify({decision:dec, comment:"desde UI"})});
-        const jj = await rr.json(); add(`[Aprobación ${a.approval_id}] ` + (rr.ok ? (jj.session_message || jj.status) : JSON.stringify(jj.detail)), "meta"); loadAps();
+  const box=$("aps");
+  try {
+    const r = await fetch("/v1/approvals?"+q,{headers:auth()}); if (!r.ok) return; const j=await r.json();
+    box.textContent=""; setCount("apsCount", j.pending.length);
+    for (const a of j.pending) {
+      const decide = dec => async () => {
+        const rr = await fetch(`/v1/approvals/${a.approval_id}`,{method:"POST",headers:{"Content-Type":"application/json",...auth()},body:JSON.stringify({decision:dec, comment:"desde la interfaz"})});
+        const jj = await rr.json();
+        if (rr.ok) notice(jj.session_message || `Solicitud ${a.approval_id}: ${jj.status}`, dec==="approve" ? "ok" : "");
+        else notice(jj?.detail?.code==="self_approval" ? "No puedes aprobar tu propia solicitud. Cambia a otro usuario autorizado (por ejemplo, Supervisor relevo P1)." : "No se pudo decidir: " + detail(jj), "err");
+        loadAps();
       };
-      d.appendChild(document.createElement("br")); d.appendChild(b);
+      box.appendChild(item(OPS[a.operation] || a.operation,
+        [`${a.line_id} · pedida por ${USERS[a.requested_by]?.[0] || a.requested_by}`, a.justification ? `Motivo: ${a.justification}` : "", params(a.params), a.approval_id].filter(Boolean),
+        [["Aprobar","ok",decide("approve")],["Rechazar","no",decide("reject")]]));
     }
-    box.appendChild(d);
-  }
-  if (!j.pending.length) box.textContent = "Sin pendientes";
+    if (!j.pending.length) box.innerHTML='<div class="empty">Sin pendientes</div>';
+  } catch {}
 }
 async function loadLabels(q) {
-  const r = await fetch("/v1/review-labels?"+q,{headers:auth()}); const box=$("labels"); box.textContent="";
-  if (!r.ok) return; const j=await r.json();
-  for (const c of j.pending) {
-    const d=document.createElement("div"); d.className="ap";
-    d.textContent = `${c.case_id} · ${c.image_ref||c.image_id} · propuesta: ${c.proposed_label} @ ${c.proposed_angle}° (modelo: ${c.predicted_label} ${c.predicted_confidence})`;
-    for (const dec of ["confirm","reject"]) {
-      const b=document.createElement("button"); b.type="button"; b.textContent = dec==="confirm"?"Confirmar":"Descartar";
-      if (dec==="reject") b.className="secondary";
-      b.onclick = async () => {
-        const rr = await fetch(`/v1/review-labels/${c.case_id}`,{method:"POST",headers:{"Content-Type":"application/json",...auth()},
-          body:JSON.stringify({decision:dec, label:c.proposed_label, angle_deg:c.proposed_angle})});
-        const jj = await rr.json(); add(`[Etiqueta ${c.case_id}] ` + (rr.ok ? jj.status : JSON.stringify(jj.detail)), "meta"); loadAps();
+  const box=$("labels");
+  try {
+    const r = await fetch("/v1/review-labels?"+q,{headers:auth()}); if (!r.ok) return; const j=await r.json();
+    box.textContent=""; setCount("labelsCount", j.pending.length);
+    for (const c of j.pending) {
+      const decide = dec => async () => {
+        const rr = await fetch(`/v1/review-labels/${c.case_id}`,{method:"POST",headers:{"Content-Type":"application/json",...auth()},body:JSON.stringify({decision:dec, label:c.proposed_label, angle_deg:c.proposed_angle})});
+        const jj = await rr.json(); notice(rr.ok ? `Etiqueta ${c.case_id}: ${jj.status}` : "No se pudo registrar: " + detail(jj), rr.ok ? "ok" : "err"); loadAps();
       };
-      d.appendChild(document.createElement("br")); d.appendChild(b);
+      box.appendChild(item(`${c.proposed_label} a ${c.proposed_angle}°`,
+        [`Caso ${c.case_id} · imagen ${c.image_ref||c.image_id}`, `El modelo había dicho ${c.predicted_label} (confianza ${c.predicted_confidence})`],
+        [["Confirmar","ok",decide("confirm")],["Descartar","no",decide("reject")]]));
     }
-    box.appendChild(d);
-  }
-  if (!j.pending.length) box.textContent = "Sin pendientes";
+    if (!j.pending.length) box.innerHTML='<div class="empty">Sin pendientes</div>';
+  } catch {}
 }
 $("refresh").onclick = loadAps;
 </script>
